@@ -44,10 +44,10 @@ use_flap_length = st.checkbox("Input Last Slice Number Instead", value=st.sessio
 st.session_state["use_flap_length"] = use_flap_length
 
 if not use_flap_length:
-    flap_length = st.number_input("Flap Length (cm, vertical)", min_value=0.1, step=0.1, value=None, format="%.2f", key="flap_length", on_change=update_middle_slice)
+    flap_length = st.number_input("Flap Length (cm, vertical)", min_value=0.1, step=0.1,format="%.2f", key="flap_length", on_change=update_middle_slice)
     last_slice = first_slice + int(flap_length / slice_width)
 else:
-    last_slice = st.number_input("Last Slice Number", min_value=first_slice+1, step=1, value=None, format="%d", key="last_slice", on_change=update_middle_slice)
+    last_slice = st.number_input("Last Slice Number", min_value=first_slice+1, step=1, format="%d", key="last_slice", on_change=update_middle_slice)
     flap_length = (last_slice - first_slice) * slice_width
 
 middle_slice = (first_slice + last_slice) // 2

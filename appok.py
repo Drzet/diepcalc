@@ -44,7 +44,7 @@ use_flap_length = st.checkbox("Input Last Slice Number Instead", value=st.sessio
 st.session_state["use_flap_length"] = use_flap_length
 
 if not use_flap_length:
-    flap_length = st.number_input("Flap Length (cm, vertical)", min_value=0.1, step=0.1,format="%.2f", key="flap_length", on_change=update_middle_slice)
+    flap_length = st.number_input("Flap Length (cm, vertical)", min_value=1, step=0.1,format="%.1f", key="flap_length", on_change=update_middle_slice)
     last_slice = first_slice + int(flap_length / slice_width)
 else:
     last_slice = st.number_input("Last Slice Number", min_value=first_slice+1, step=1, format="%d", key="last_slice", on_change=update_middle_slice)
@@ -52,17 +52,17 @@ else:
 
 middle_slice = (first_slice + last_slice) // 2
 
-flap_width = st.number_input("Flap Width (cm, frontal)", min_value=0.1, step=0.1, format="%.2f", value=None, key="flap_width")
+flap_width = st.number_input("Flap Width (cm, frontal)", min_value=1, step=1, format="%d", value=None, key="flap_width")
 
 st.subheader("Max Thickness at Slices (cm)")
-Max_first = st.number_input(f"Max Thickness at Slice {first_slice}:", min_value=0.1, step=0.1, format="%.2f", value=None, key="Max_first")
-Max_middle = st.number_input(f"Max Thickness at Slice {middle_slice}:", min_value=0.1, step=0.1, format="%.2f", value=None, key="Max_middle")
-Max_last = st.number_input(f"Max Thickness at Slice {last_slice}:", min_value=0.1, step=0.1, format="%.2f",  value=None, key="Max_last")
+Max_first = st.number_input(f"Max Thickness at Slice {first_slice}:", min_value=0.1, step=0.1, format="%.1f", value=None, key="Max_first")
+Max_middle = st.number_input(f"Max Thickness at Slice {middle_slice}:", min_value=0.1, step=0.1, format="%.1f", value=None, key="Max_middle")
+Max_last = st.number_input(f"Max Thickness at Slice {last_slice}:", min_value=0.1, step=0.1, format="%.1f",  value=None, key="Max_last")
 
 st.subheader("Min Thickness at Slices (cm)")
-Min_first = st.number_input(f"Min Thickness at Slice {first_slice}:", min_value=0.1, step=0.1, format="%.2f", value=None, key="Min_first")
-Min_middle = st.number_input(f"Min Thickness at Slice {middle_slice}:", min_value=0.1, step=0.1, format="%.2f", value=None, key="Min_middle")
-Min_last = st.number_input(f"Min Thickness at Slice {last_slice}:", min_value=0.1, step=0.1, format="%.2f", value=None, key="Min_last")
+Min_first = st.number_input(f"Min Thickness at Slice {first_slice}:", min_value=0.1, step=0.1, format="%.1f", value=None, key="Min_first")
+Min_middle = st.number_input(f"Min Thickness at Slice {middle_slice}:", min_value=0.1, step=0.1, format="%.1f", value=None, key="Min_middle")
+Min_last = st.number_input(f"Min Thickness at Slice {last_slice}:", min_value=0.1, step=0.1, format="%.1f", value=None, key="Min_last")
 
 if st.button("Calculate Volume"):
     try:

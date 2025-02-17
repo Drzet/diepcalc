@@ -37,9 +37,6 @@ st.title("DIEP Flap Volume Calculator")
 if "use_flap_length" not in st.session_state:
     st.session_state["use_flap_length"] = False
 
-use_flap_length = st.checkbox("Input Last Slice Number Instead", value=st.session_state["use_flap_length"])
-st.session_state["use_flap_length"] = use_flap_length
-
 slice_width = st.number_input("Slice Width (cm)", min_value=0.1, step=0.1, format="%.2f", key="slice_width")
 first_slice = st.number_input("First Slice Number", min_value=1, step=1, format="%d", key="first_slice", on_change=update_middle_slice)
 
@@ -49,7 +46,9 @@ if not use_flap_length:
 else:
     last_slice = st.number_input("Last Slice Number", min_value=first_slice+1, step=1, format="%d", key="last_slice", on_change=update_middle_slice)
     flap_length = (last_slice - first_slice) * slice_width
-
+    
+use_flap_length = st.checkbox("Input Last Slice Number Instead", value=st.session_state["use_flap_length"])
+st.session_state["use_flap_length"] = use_flap_length
 middle_slice = (first_slice + last_slice) // 2
 
 flap_width = st.number_input("Flap Width (cm, frontal)", min_value=0.1, step=0.1, format="%.2f", key="flap_width")
@@ -74,9 +73,9 @@ if st.button("Calculate Volume"):
         hemi_diep_weight = hemi_diep_volume * 0.9
 
         result_text = (
-            f"Total Abdominoplasty Volume: {volume:.2f} cm³\n  Weight: {total_weight:.2f} g\n"
-            f"DIEP Flap Volume (3 zones): {diep_volume:.2f} cm³\n  Weight: {diep_weight:.2f} g\n"
-            f"HemiDIEP Flap Volume (2 zones): {hemi_diep_volume:.2f} cm³\n  Weight: {hemi_diep_weight:.2f} g\n"
+            f"Total Abdominoplasty Volume: {volume:.2f} cm³\n      Weight: {total_weight:.2f} g\n"
+            f"DIEP Flap Volume (3 zones): {diep_volume:.2f} cm³\n     Weight: {diep_weight:.2f} g\n"
+            f"HemiDIEP Flap Volume (2 zones): {hemi_diep_volume:.2f} cm³\n      Weight: {hemi_diep_weight:.2f} g\n"
         )
 
         st.text_area("Results", value=result_text, height=150)
@@ -87,4 +86,4 @@ if st.button("Calculate Volume"):
 if st.button("Clear All Inputs"):
     for key in st.session_state.keys():
         del st.session_state[key]
-    st.experimental_rerun()
+    st.rerun()

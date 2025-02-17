@@ -85,7 +85,9 @@ if st.button("Calculate Volume"):
         st.error(f"Error: {e}")
 
 if st.button("Clear All Inputs"):
-    for key in st.session_state.keys():
+    keys_to_clear = list(st.session_state.keys())  # Avoid runtime modification issue
+    for key in keys_to_clear:
         del st.session_state[key]
     st.rerun()
+
 

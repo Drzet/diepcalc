@@ -37,8 +37,8 @@ st.title("DIEP Flap Volume Calculator.")
 if "use_flap_length" not in st.session_state:
     st.session_state["use_flap_length"] = False
 
-slice_width = st.number_input("Slice Width (cm)", min_value=0.1, step=0.1, format="%.2f", key="slice_width")
-first_slice = st.number_input("First Slice Number", min_value=1, step=1, format="%d", value=None, key="first_slice", on_change=update_middle_slice)
+slice_width = st.number_input("Slice Width (cm)", min_value=0.1, step=0.1, value=None, format="%.2f", key="slice_width")
+first_slice = st.number_input("First Slice Number", min_value=1, step=1, value=None, format="%d", key="first_slice", on_change=update_middle_slice)
 
 use_flap_length = st.checkbox("Input Last Slice Number Instead", value=st.session_state["use_flap_length"])
 st.session_state["use_flap_length"] = use_flap_length

@@ -32,7 +32,7 @@ def update_middle_slice():
     except ValueError:
         pass
 
-st.title("DIEP Flap Volume Calculator")
+st.title("DIEP Flap Volume Calculator.")
 
 if "use_flap_length" not in st.session_state:
     st.session_state["use_flap_length"] = False

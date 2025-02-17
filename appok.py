@@ -56,7 +56,7 @@ flap_width = st.number_input("Flap Width (cm, frontal)", min_value=0.1, step=0.1
 
 st.subheader("Max Thickness at Slices (cm)")
 Max_first = st.number_input(f"Max Thickness at Slice {first_slice}:", min_value=0.1, step=0.1, format="%.2f", key="Max_first")
-Max_middle = st.number_input(f"Max Thickness at Slice {middle_slice}:", min_value=0.1, step=0.1, format="%.2f", key="Max_middle")
+Max_middle = st.number_input(f"Max Thickness at Slice {middle_slice}:", min_value=0.1, step=0.1, format="%.2f", value=None, key="Max_middle")
 Max_last = st.number_input(f"Max Thickness at Slice {last_slice}:", min_value=0.1, step=0.1, format="%.2f", key="Max_last")
 
 st.subheader("Min Thickness at Slices (cm)")

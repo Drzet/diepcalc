@@ -102,7 +102,7 @@ def keep_only_required_volume(width, length, thickness, Px, Py, required_volume)
     
     return kept_points
 
-def visualize_extraction(width, length, Px, Pyc, extraction_area_points):
+def visualize_extraction(width, length, Px, Py, extraction_area_points):
     a = width / 2
     b = length / 2
     Pyc = b - Py

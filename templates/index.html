@@ -1,0 +1,56 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DIEP Flap Extraction</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+<body>
+    <nav class="navbar navbar-light bg-light px-3">
+        <span class="navbar-brand mb-0 h1">Welcome, {{ user }}</span>
+        <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
+    </nav>
+    <div class="container mt-5">
+        <h2 class="text-center">DIEP Flap Volume Extraction</h2>
+        <form method="post" class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Width (cm)</label>
+                <input type="number" name="width" class="form-control" step="0.1" required>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Length (cm)</label>
+                <input type="number" name="length" class="form-control" step="0.1" required>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Thickness (cm)</label>
+                <input type="number" name="thickness" class="form-control" step="0.1" required>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Perforator X (cm from midline)</label>
+                <input type="number" name="Px" class="form-control" step="0.1" required>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Perforator Y (cm from top slice)</label>
+                <input type="number" name="Py" class="form-control" step="0.1" required>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Required Volume (cc)</label>
+                <input type="number" name="required_volume" class="form-control" step="0.1" required>
+            </div>
+            <div class="col-12 text-center">
+                <button type="submit" class="btn btn-success">Calculate</button>
+            </div>
+        </form>
+        {% if required_volume %}
+            <div class="mt-4 text-center">
+                <h4>Results</h4>
+                <p><strong>Extracted Shape:</strong> {{ width }}cm x {{ length }}cm</p>
+                <p><strong>Required Volume:</strong> {{ required_volume }}cc</p>
+                <img src="{{ url_for('static', filename='extraction.png') }}" class="img-fluid mt-3" alt="Extracted Visualization">
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>

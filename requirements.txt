@@ -1,1 +1,5 @@
-streamlit
+flask
+numpy
+matplotlib
+werkzeug
+gunicorn

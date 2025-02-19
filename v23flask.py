@@ -51,7 +51,7 @@ def index():
         extraction_area_points = keep_only_required_volume(width, length, thickness, Px, Py, required_volume)
         
         if extraction_area_points:
-            visualize_extraction(width, length, Px, Py, extraction_area_points)
+            visualize_extraction(width, length, Px, Py, extraction_area_points, required_volume)
         
         return render_template('index.html', width=width, length=length, thickness=thickness, Px=Px, Py=Py, required_volume=required_volume, user=session['user'])
     

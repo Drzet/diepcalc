@@ -52,6 +52,12 @@ def index():
         
         if extraction_area_points:
             visualize_extraction(width, length, Px, Py, extraction_area_points, required_volume)
+        # Calculate total volume
+        a = width / 2  # Semi-major axis
+        b = length / 2  # Semi-minor axis
+        total_area = math.pi * a * b  # Total ellipse area
+        total_volume = total_area * thickness  # Total volume of the flap
+        hemi_volume = total_volume / 2
         
         return render_template('index.html', width=width, length=length, thickness=thickness, Px=Px, Py=Py, required_volume=required_volume, user=session['user'])
     

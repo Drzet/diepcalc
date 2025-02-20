@@ -132,7 +132,7 @@ def visualize_extraction(width, length, Px, Py, extraction_area_points, required
     
     if extraction_area_points:
         extracted_x, extracted_y = zip(*extraction_area_points)
-        ax.scatter(extracted_x, extracted_y, color='red', s=2, label="Remaining Volume")
+        ax.scatter(extracted_x, extracted_y, color='red', s=2)
     
     ax.set_title(f"DIEP Flap {required_volume:.1f}cc | Extracted: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
     ax.legend()

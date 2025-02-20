@@ -70,7 +70,7 @@ def index():
         hemi_volume = int(round(hemi_volume))
         hemi_weight = int(round(hemi_weight))
         
-        return render_template('index.html', width=width, length=length, thickness=thickness, Px=Px, Py=Py, required_volume=required_volume, total_volume=total_volume, hemi_volume=hemi_volume, total_weight=total_weight, user=session['user'])
+        return render_template('index.html', width=width, length=length, thickness=thickness, Px=Px, Py=Py, required_volume=required_volume, total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, user=session['user'])
     
     return render_template('index.html', user=session['user'])
 
@@ -137,7 +137,7 @@ def visualize_extraction(width, length, Px, Py, extraction_area_points, required
     ellipse_y = b * np.sin(theta)
     ax.plot(ellipse_x, ellipse_y, 'b-', linewidth=2, label="Ellipse Boundary")
     
-    ax.plot(Px, Pyc, 'ro', markersize=8, label="Perforator")
+    ax.plot(Px, Pyc, 'ko', markersize=8, label="Perforator")
     
     if extraction_area_points:
         extracted_x, extracted_y = zip(*extraction_area_points)

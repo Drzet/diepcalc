@@ -51,8 +51,36 @@
 
     <div class="col-12 text-center">
         <button type="submit" class="btn btn-success">Calculate</button>
+        <button type="button" id="clear-form" class="btn btn-secondary">Clear</button>
     </div>
 </form>
+        
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const inputs = document.querySelectorAll("input");
+
+        // Restore saved values
+        inputs.forEach(input => {
+            const savedValue = localStorage.getItem(input.name);
+            if (savedValue) input.value = savedValue;
+        });
+
+        // Save values when changed
+        inputs.forEach(input => {
+            input.addEventListener("input", () => {
+                localStorage.setItem(input.name, input.value);
+            });
+        });
+
+        // Clear values on "Clear" button click
+        document.getElementById("clear-form").addEventListener("click", () => {
+            inputs.forEach(input => {
+                localStorage.removeItem(input.name);
+                input.value = "";
+            });
+        });
+    });
+</script>
 
         {% if required_volume %}
             <div class="mt-4 text-center">

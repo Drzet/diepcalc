@@ -59,7 +59,7 @@ def index():
         total_volume = total_area * thickness  # Total volume of the flap
         hemi_volume = total_volume / 2
         total_weight = total_volume * 0.9
-        hemi_weight = hemi_weight * 0.9
+        hemi_weight = hemi_wolume * 0.9
         
         return render_template('index.html', width=width, length=length, thickness=thickness, Px=Px, Py=Py, required_volume=required_volume, total_volume=total_volume, hemi_volume=hemi_volume, total_weight=total_weight, user=session['user'])
     

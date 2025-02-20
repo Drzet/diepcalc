@@ -14,8 +14,12 @@ users = {"admin": generate_password_hash("password123")}  # Change this for real
 
 # Function to log visits
 def log_visit(user):
-    with open("visits.log", "a") as log_file:
-        log_file.write(f"{datetime.datetime.now()} - User: {user}\n")
+    ip = request.remote_addr
+    user_agent = request.headers.get('User-Agent')
+    endpoint = request.path
+    log_message = f"{datetime.datetime.now()} - User: {user}, IP: {ip}, User Agent: {user_agent}, Endpoint: {endpoint}\n"
+    with open("logs/visits.log", "a") as log_file:
+        log_file.write(log_message)
 
 @app.route('/', methods=['GET', 'POST'])
 def login():
@@ -59,7 +63,7 @@ def index():
         total_volume = total_area * thickness  # Total volume of the flap
         hemi_volume = total_volume / 2
         total_weight = total_volume * 0.9
-        hemi_weight = hemi_wolume * 0.9
+        hemi_weight = hemi_volume * 0.9
         
         return render_template('index.html', width=width, length=length, thickness=thickness, Px=Px, Py=Py, required_volume=required_volume, total_volume=total_volume, hemi_volume=hemi_volume, total_weight=total_weight, user=session['user'])
     

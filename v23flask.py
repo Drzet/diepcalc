@@ -64,6 +64,11 @@ def index():
         hemi_volume = total_volume / 2
         total_weight = total_volume * 0.9
         hemi_weight = hemi_volume * 0.9
+
+        total_volume = int(round(total_volume))
+        total_weight = int(round(total_weight))
+        hemi_volume = int(round(hemi_volume))
+        hemi_weight = int(round(hemi_weight))
         
         return render_template('index.html', width=width, length=length, thickness=thickness, Px=Px, Py=Py, required_volume=required_volume, total_volume=total_volume, hemi_volume=hemi_volume, total_weight=total_weight, user=session['user'])
     

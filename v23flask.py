@@ -127,7 +127,7 @@ def visualize_extraction(width, length, Px, Py, extraction_area_points, required
     extracted_width = max(x for x, y in extraction_area_points) - min(x for x, y in extraction_area_points)
     extracted_length = max(y for x, y in extraction_area_points) - min(y for x, y in extraction_area_points)
     
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(10, 10))
     ax.set_xlim(-a - 5, a + 5)
     ax.set_ylim(-b - 5, b + 5)
     ax.set_aspect('equal')
@@ -143,7 +143,7 @@ def visualize_extraction(width, length, Px, Py, extraction_area_points, required
         extracted_x, extracted_y = zip(*extraction_area_points)
         ax.scatter(extracted_x, extracted_y, color='red', s=2)
     
-    ax.set_title(f"DIEP Flap {required_volume:.1f}cc | Extracted: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
+    ax.set_title(f"DIEP Flap {required_volume:.1f}cc | Dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
     ax.legend()
     plt.grid()
     plt.savefig('static/extraction.png')

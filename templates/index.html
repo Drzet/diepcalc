@@ -13,40 +13,47 @@
         <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
     </nav>
     <div class="container mt-5">
-        <h2 class="text-center">DIEP Flap Volume Extraction <span style="color: red; font-weight: bold;">EXPERIMENTAL!</span></h2>
+        <h2 class="text-center">DIEP Flap Volume Extraction <span style="color: red; font-weight: bold;"> EXPERIMENTAL!</span></h2>
     <form method="post" class="row g-3">
-    <!-- Left Column -->
     <div class="col-md-6">
-        <label class="form-label">Width (cm)</label>
-        <input type="number" name="width" class="form-control" step="0.1" required>
-    </div>
-    <div class="col-md-6">
-        <label class="form-label">Perforator X (cm from midline)</label>
-        <input type="number" name="Px" class="form-control" step="0.1" required>
+        <div class="d-flex flex-column">
+            <label class="form-label">Width (cm)</label>
+            <input type="number" name="width" class="form-control" step="0.1" required>
+        </div>
+
+        <div class="d-flex flex-column">
+            <label class="form-label">Length (pinch) (cm)</label>
+            <input type="number" name="length" class="form-control" step="0.1" required>
+        </div>
+
+        <div class="d-flex flex-column">
+            <label class="form-label">Thickness (cm)</label>
+            <input type="number" name="thickness" class="form-control" step="0.1" required>
+        </div>
     </div>
 
     <div class="col-md-6">
-        <label class="form-label">Length (pinch) (cm)</label>
-        <input type="number" name="length" class="form-control" step="0.1" required>
-    </div>
-    <div class="col-md-6">
-        <label class="form-label">Perforator Y (cm from top incision)</label>
-        <input type="number" name="Py" class="form-control" step="0.1" required>
-    </div>
+        <div class="d-flex flex-column">
+            <label class="form-label">Perforator X (cm from midline)</label>
+            <input type="number" name="Px" class="form-control" step="0.1" required>
+        </div>
 
-    <div class="col-md-6">
-        <label class="form-label">CT Thickness (cm)</label>
-        <input type="number" name="thickness" class="form-control" step="0.1" required>
-    </div>
-    <div class="col-md-6">
-        <label class="form-label">Required Volume (cc)</label>
-        <input type="number" name="required_volume" class="form-control" step="0.1" required>
+        <div class="d-flex flex-column">
+            <label class="form-label">Perforator Y (cm from top incision)</label>
+            <input type="number" name="Py" class="form-control" step="0.1" required>
+        </div>
+
+        <div class="d-flex flex-column">
+            <label class="form-label">Required Volume (cc)</label>
+            <input type="number" name="required_volume" class="form-control" step="0.1" required>
+        </div>
     </div>
 
     <div class="col-12 text-center">
         <button type="submit" class="btn btn-success">Calculate</button>
     </div>
 </form>
+
         {% if required_volume %}
             <div class="mt-4 text-center">
                 <h4>Results</h4>

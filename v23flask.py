@@ -11,7 +11,7 @@ app.secret_key = 'your_secret_key'  # Change this for security
 
 # User authentication with password hashing
 users = {
-"admin": generate_password_hash("password123")
+"admin": generate_password_hash("password123"),
 "Adam" : generate_password_hash("qvh_1_test")
 }  # Change this for real use
 

@@ -62,6 +62,8 @@ def index():
         # Calculate total volume
         n = 1.3
         m = 2
+        a = width / 2 
+        b = length / 2
 
         x_vals = np.linspace(-a, a, 500)
         y_vals = np.linspace(-b, b, 500)

@@ -60,6 +60,8 @@ def index():
         if extraction_area_points:
             visualize_extraction(width, length, Px, Py, extraction_area_points, required_volume)
         # Calculate total volume
+        width = float(request.form['width'])
+        length = float(request.form['length'])
         n = 1.3
         m = 2
         a = width / 2 

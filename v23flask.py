@@ -86,12 +86,7 @@ def index():
     return render_template('index.html', user=session['user'])
 
 # Functions for DIEP flap extraction logic
-def calculate_zone_volume(width, length, thickness, Px):
-    a = width / 2  # Semi-major axis
-    b = length / 2  # Semi-minor axis
-    total_area = math.pi * a * b  # Total ellipse area
-    global total_volume
-    total_volume = total_area * thickness  # Total volume of the flap
+def calculate_zone_volume(width, Px, total_volume):
     
     medial_width = width * 0.75
     lateral_width = width * 0.25

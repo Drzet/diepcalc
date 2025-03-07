@@ -108,7 +108,7 @@ def keep_only_required_volume(width, length, thickness, Px, Py, required_volume)
     global Pyc
     Pyc = b - Py  # Convert to Cartesian coordinate
     
-    total_zone1_volume = calculate_zone_volume(width, length, thickness, Px)
+    total_zone1_volume = calculate_zone_volume(width, total_volume, Px)
     excess_volume = total_zone1_volume - required_volume
     
     if excess_volume <= 0:

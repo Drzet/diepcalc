@@ -102,7 +102,7 @@ def calculate_zone_volume(width, Px, total_volume):
     
     return total_volume * zone_area_fraction
 
-def keep_only_required_volume(width, length, thickness, Px, Py, required_volume):
+def keep_only_required_volume(width, length, Px, Py, total_volume, required_volume):
     a = width / 2 
     b = length / 2
     global Pyc

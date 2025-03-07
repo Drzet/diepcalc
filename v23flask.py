@@ -55,14 +55,22 @@ def index():
         Py = float(request.form['Py'])
         required_volume = float(request.form['required_volume'])
         
-        extraction_area_points = keep_only_required_volume(width, length, thickness, Px, Py, required_volume)
+        extraction_area_points = keep_only_required_volume(width, length, thickness, Px, Py,  required_volume)
         
         if extraction_area_points:
             visualize_extraction(width, length, Px, Py, extraction_area_points, required_volume)
         # Calculate total volume
-        a = width / 2  # Semi-major axis
-        b = length / 2  # Semi-minor axis
-        total_area = math.pi * a * b  # Total ellipse area
+        n = 1.3
+        m = 2
+
+        x_vals = np.linspace(-a, a, 500)
+        y_vals = np.linspace(-b, b, 500)
+        dx = x_vals[1] - x_vals[0]
+        dy = y_vals[1] - y_vals[0]
+
+        total_area = sum(
+        1 for x in x_vals for y in y_vals if (np.abs(x/a)**m + np.abs(y/b)**n) <= 1
+        ) * dx * dy
         total_volume = total_area * thickness  # Total volume of the flap
         hemi_volume = total_volume / 2
         total_weight = total_volume * 0.9
@@ -109,7 +117,11 @@ def keep_only_required_volume(width, length, thickness, Px, Py, required_volume)
     if excess_volume <= 0:
         return None
     
-    all_points = [(x, y) for x in np.linspace(-a, a, 100) for y in np.linspace(-b, b, 100) if (x**2 / a**2) + (y**2 / b**2) <= 1]
+    n = 1.3
+    m = 2
+    all_points = [
+    (x, y) for x in np.linspace(-a, a, 100) for y in np.linspace(-b, b, 100)
+    if (np.abs(x/a)**m + np.abs(y/b)**n) <= 1]
     all_points.sort(key=lambda p: np.sqrt((p[0] - Px) ** 2 + (p[1] - Pyc) ** 2))
     
     kept_volume = 0
@@ -135,10 +147,14 @@ def visualize_extraction(width, length, Px, Py, extraction_area_points, required
     ax.set_ylim(-b - 5, b + 5)
     ax.set_aspect('equal')
     
+    n = 1.3  # vertical curvature (pointier ends)
+    m = 2    # horizontal curvature (standard ellipse)
+
     theta = np.linspace(0, 2 * np.pi, 300)
-    ellipse_x = a * np.cos(theta)
-    ellipse_y = b * np.sin(theta)
-    ax.plot(ellipse_x, ellipse_y, 'b-', linewidth=2, label="Ellipse Boundary")
+    ellipse_x = a * np.sign(np.cos(theta)) * np.abs(np.cos(theta)) ** (2 / m)
+    ellipse_y = b * np.sign(np.sin(theta)) * np.abs(np.sin(theta)) ** (2 / n)
+
+    ax.plot(ellipse_x, ellipse_y, 'b-', linewidth=2, label="Lamé Superellipse Boundary")
     
     ax.plot(Px, Pyc, 'ko', markersize=8, label="Perforator")
     

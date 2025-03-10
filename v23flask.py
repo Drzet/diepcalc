@@ -1,10 +1,11 @@
 from flask import Flask, render_template, request, redirect, url_for, session
 import numpy as np
 import matplotlib.pyplot as plt
-import math
-import os
+#import math
+#import os
 import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
+from scipy.integrate import trapezoid
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Change this for security
@@ -43,6 +44,27 @@ def logout():
     return redirect(url_for('login'))
 
 @app.route('/extract', methods=['GET', 'POST'])
+
+def calculate_asymmetric_area(a, b, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7, num_points=300):
+    # Generate asymmetric superellipse
+    theta = np.linspace(0, 2 * np.pi, num_points)
+    x = a * np.sign(np.cos(theta)) * (np.abs(np.cos(theta)) ** (2 / n))
+    y = b * np.sign(np.sin(theta)) * (np.abs(np.sin(theta)) ** (2 / m))
+
+    # Apply asymmetric scaling while keeping total height constant
+    y_adjusted = np.where(y > 0, y * upper_scale, y * lower_scale)
+
+    # Sort x values to ensure proper integration order
+    sorted_indices = np.argsort(x)
+    x_sorted = x[sorted_indices]
+    y_sorted = y_adjusted[sorted_indices]
+
+    # Integrate the positive values only
+    total_area = trapezoid(np.abs(y_sorted), x_sorted) * 2  # Multiply by 2 to account for both halves
+
+    return total_area
+
+@app.route('/index', methods=['GET', 'POST'])
 def index():
     if 'user' not in session:
         return redirect(url_for('login'))
@@ -53,116 +75,125 @@ def index():
         thickness = float(request.form['thickness'])
         Px = float(request.form['Px'])
         Py = float(request.form['Py'])
-        required_volume = float(request.form['required_volume'])
+        requested_volume = float(request.form['requested_volume'])
         
-        extraction_area_points = keep_only_required_volume(width, length, thickness, Px, Py,  required_volume)
+       
         
-        if extraction_area_points:
-            visualize_extraction(width, length, Px, Py, extraction_area_points, required_volume)
-        # Calculate total volume
-        n = 1.3
-        m = 2
-        a = width / 2 
-        b = length / 2
-
-        x_vals = np.linspace(-a, a, 500)
-        y_vals = np.linspace(-b, b, 500)
-        dx = x_vals[1] - x_vals[0]
-        dy = y_vals[1] - y_vals[0]
-
-        total_area = sum(
-        1 for x in x_vals for y in y_vals if (np.abs(x/a)**m + np.abs(y/b)**n) <= 1
-        ) * dx * dy
-        total_volume = total_area * thickness  # Total volume of the flap
+        # Calculate total volume using the new asymmetric superellipse
+        a = width / 2  # Semi-major axis
+        b = length / 2  # Semi-minor axis
+        total_area = calculate_asymmetric_area(a, b)
+        total_volume = total_area * thickness  # Volume of the flap
         hemi_volume = total_volume / 2
         total_weight = total_volume * 0.9
         hemi_weight = hemi_volume * 0.9
+
+
+        extraction_area_points = keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, requested_volume)
+        
+        if extraction_area_points:
+            visualize_extraction(width, length, Px, Py, extraction_area_points, requested_volume)
 
         total_volume = int(round(total_volume))
         total_weight = int(round(total_weight))
         hemi_volume = int(round(hemi_volume))
         hemi_weight = int(round(hemi_weight))
+        total_area = int(round(total_area))
+
         
-        return render_template('index.html', width=width, length=length, thickness=thickness, Px=Px, Py=Py, required_volume=required_volume, total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, user=session['user'])
+        
+        return render_template('index.html', width=width, total_area=total_area, length=length, thickness=thickness, Px=Px, Py=Py, requested_volume=requested_volume, total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, user=session['user'])
     
     return render_template('index.html', user=session['user'])
 
 # Functions for DIEP flap extraction logic
 def calculate_zone_volume(width, Px, total_volume):
-    
-    medial_width = width * 0.75
-    lateral_width = width * 0.25
-    
+    print(f"total_volume={total_volume}")
+    medial_width = width * 0.85
+    lateral_width = width * 0.15
+    print(f"medial_width={medial_width}")
     medial_zone_x = (-medial_width / 2, medial_width / 2)
+    print(f"Px={Px}, Medial Zone Bounds={medial_zone_x}")
     
     if medial_zone_x[0] <= Px <= medial_zone_x[1]:
-        zone_area_fraction = 0.75
+        zone_area_fraction = 0.85
     else:
-        zone_area_fraction = 0.25
-    
+        zone_area_fraction = 0.15
+    zone1_volume = total_volume * zone_area_fraction
+    print(f"zone1_volume={zone1_volume}")
     return total_volume * zone_area_fraction
 
-def keep_only_required_volume(width, length, Px, Py, total_volume, required_volume):
-    a = width / 2 
-    b = length / 2
+
+def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, requested_volume, n=1.2, m=2, upper_scale=1.3, lower_scale=0.7):
+    print(f"Received total_volume in keep_only_requested_volume: {total_volume}")
+    a = width / 2  # Semi-major axis
+    b = length / 2  # Semi-minor axis
     global Pyc
     Pyc = b - Py  # Convert to Cartesian coordinate
-    
-    total_zone1_volume = calculate_zone_volume(width, total_volume, Px)
-    excess_volume = total_zone1_volume - required_volume
+    total_zone1_volume = calculate_zone_volume(width, Px, total_volume)
+    excess_volume = total_zone1_volume - requested_volume
+    print(f"EXtracted_volume={excess_volume}")
     
     if excess_volume <= 0:
         return None
-    
-    n = 1.3
-    m = 2
-    all_points = [
-    (x, y) for x in np.linspace(-a, a, 100) for y in np.linspace(-b, b, 100)
-    if (np.abs(x/a)**m + np.abs(y/b)**n) <= 1]
+    # Generate candidate points inside the asymmetric Lame superellipse
+    all_points = [(x, y) for x in np.linspace(-a, a, 100) for y in np.linspace(-b * lower_scale, b * upper_scale, 100)
+                  if (abs(x) / a) ** (2 / n) + (abs(y) / (b * (upper_scale if y > 0 else lower_scale))) ** (2 / m) <= 1]
+
+    # Sort points based on proximity to perforator
     all_points.sort(key=lambda p: np.sqrt((p[0] - Px) ** 2 + (p[1] - Pyc) ** 2))
-    
+
+    # Extract points until required volume is reached
     kept_volume = 0
     kept_points = []
+    
     for point in all_points:
-        if kept_volume >= required_volume:
+        if kept_volume >= requested_volume:
             break
         kept_points.append(point)
-        kept_volume += thickness * (width / 100) * (length / 100)
-    
+        kept_volume += thickness * (width / 100) * (length / 100)  # Same method as the original script
+
     return kept_points
 
-def visualize_extraction(width, length, Px, Py, extraction_area_points, required_volume):
+
+def visualize_extraction(width, length, Px, Py, extraction_area_points, requested_volume, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7, num_points=300):
     a = width / 2
     b = length / 2
-    Pyc = b - Py
+    Pyc = b - Py  # Convert Py to Cartesian coordinate
+
+    # Generate the asymmetric Lame superellipse
+    theta = np.linspace(0, 2 * np.pi, num_points)
+    x_vals = a * np.sign(np.cos(theta)) * (np.abs(np.cos(theta)) ** (2 / n))
+    y_vals = b * np.sign(np.sin(theta)) * (np.abs(np.sin(theta)) ** (2 / m))
     
-    extracted_width = max(x for x, y in extraction_area_points) - min(x for x, y in extraction_area_points)
-    extracted_length = max(y for x, y in extraction_area_points) - min(y for x, y in extraction_area_points)
-    
+    # Apply asymmetric scaling
+    y_vals_adjusted = np.where(y_vals > 0, y_vals * upper_scale, y_vals * lower_scale)
+
+    # Plot updated asymmetric shape
     fig, ax = plt.subplots(figsize=(10, 10))
     ax.set_xlim(-a - 5, a + 5)
     ax.set_ylim(-b - 5, b + 5)
     ax.set_aspect('equal')
-    
-    n = 1.3  # vertical curvature (pointier ends)
-    m = 2    # horizontal curvature (standard ellipse)
 
-    theta = np.linspace(0, 2 * np.pi, 300)
-    ellipse_x = a * np.sign(np.cos(theta)) * np.abs(np.cos(theta)) ** (2 / m)
-    ellipse_y = b * np.sign(np.sin(theta)) * np.abs(np.sin(theta)) ** (2 / n)
+    extracted_width = max(x for x, y in extraction_area_points) - min(x for x, y in extraction_area_points)
+    extracted_length = max(y for x, y in extraction_area_points) - min(y for x, y in extraction_area_points)
+    print(f"extracted_width={extracted_width}")
+    # Plot new asymmetric boundary
+    ax.plot(x_vals, y_vals_adjusted, 'b-', linewidth=2, label="Asymmetric Superellipse Boundary")
 
-    ax.plot(ellipse_x, ellipse_y, 'b-', linewidth=2, label="Lamé Superellipse Boundary")
-    
+    # Mark perforator point
     ax.plot(Px, Pyc, 'ko', markersize=8, label="Perforator")
-    
+
+    # Plot extracted region if available
     if extraction_area_points:
         extracted_x, extracted_y = zip(*extraction_area_points)
-        ax.scatter(extracted_x, extracted_y, color='red', s=2)
-    
-    ax.set_title(f"DIEP Flap {required_volume:.1f}cc | Dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
+        ax.scatter(extracted_x, extracted_y, color='red', s=2, label="Extracted Region")
+
+    ax.set_title(f"DIEP Flap {requested_volume:.1f}cc | Dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
     ax.legend()
     plt.grid()
     plt.savefig('static/extraction.png')
+
     
 # Run Flask app
 if __name__ == '__main__':

@@ -45,7 +45,7 @@
 
         <div class="d-flex flex-column">
             <label class="form-label">Required Volume (cc)</label>
-            <input type="number" name="required_volume" class="form-control" step="0.1" required>
+            <input type="number" name="requested_volume" class="form-control" step="0.1" required>
         </div>
     </div>
 
@@ -82,9 +82,10 @@
     });
 </script>
 
-        {% if required_volume %}
+        {% if requested_volume %}
             <div class="mt-4 text-center">
                 <h4>Results</h4>
+                <p><strong>Total area:</strong> {{ total_area }} cm sq</p>
                 <p><strong>Total volume:</strong> {{ total_volume }} cc</p>
                 <p><strong>Total weight:</strong> {{ total_weight }} g</p>
                 <p><strong>Hemi-DIEP Volume:</strong> {{ hemi_volume }} cc</p>

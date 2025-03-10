@@ -179,7 +179,7 @@ def visualize_extraction(width, length, Px, Py, extraction_area_points, requeste
     extracted_length = max(y for x, y in extraction_area_points) - min(y for x, y in extraction_area_points)
     print(f"extracted_width={extracted_width}")
     # Plot new asymmetric boundary
-    ax.plot(x_vals, y_vals_adjusted, 'b-', linewidth=2, label="Asymmetric Superellipse Boundary")
+    ax.plot(x_vals, y_vals_adjusted, 'b-', linewidth=2, label="Abdominoplasty Boundary")
 
     # Mark perforator point
     ax.plot(Px, Pyc, 'ko', markersize=8, label="Perforator")

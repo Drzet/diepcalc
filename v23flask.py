@@ -148,7 +148,7 @@ def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, r
     # Apply asymmetry scaling
     y = b * np.sign(np.sin(theta)) * (np.abs(np.sin(theta)) ** (2 / m))  # Generate y
     y *= np.where(y > 0, upper_scale, lower_scale)  # Apply scaling immediately
-    y_adjusted = np.where(y > 0, y * upper_scale, y #* lower_scale)
+    y_adjusted = np.where(y > 0, y * upper_scale, y * lower_scale)
     
     all_points = list(zip(x, y_adjusted))
     

@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from scipy.integrate import trapezoid
+from scipy.spatial import Delaunay
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Change this for security
@@ -92,7 +93,7 @@ def index():
         extraction_area_points = keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, requested_volume)
         
         if extraction_area_points:
-            visualize_extraction(width, length, Px, Py, extraction_area_points, requested_volume)
+            visualize_extraction(width, length, Px, Py, extraction_area_points, requested_volume, total_volume)
 
         total_volume = int(round(total_volume))
         total_weight = int(round(total_weight))
@@ -124,42 +125,51 @@ def calculate_zone_volume(width, Px, total_volume):
     return total_volume * zone_area_fraction
 
 
-def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, requested_volume, n=1.2, m=2, upper_scale=1.3, lower_scale=0.7):
-    print(f"Received total_volume in keep_only_requested_volume: {total_volume}")
+
+def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, required_volume, 
+                               n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
     a = width / 2  # Semi-major axis
     b = length / 2  # Semi-minor axis
-    global Pyc
-    Pyc = b - Py  # Convert to Cartesian coordinate
-    total_zone1_volume = calculate_zone_volume(width, Px, total_volume)
-    excess_volume = total_zone1_volume - requested_volume
-    print(f"EXtracted_volume={excess_volume}")
+    num_points = int(total_volume)* 10  # Number of points to generate
     
-    if excess_volume <= 0:
-        return None
-    # Generate candidate points inside the asymmetric Lame superellipse
-    all_points = [(x, y) for x in np.linspace(-a, a, 100) for y in np.linspace(-b * lower_scale, b * upper_scale, 100)
-                  if (abs(x) / a) ** (2 / n) + (abs(y) / (b * (upper_scale if y > 0 else lower_scale))) ** (2 / m) <= 1]
-
-    # Sort points based on proximity to perforator
-    all_points.sort(key=lambda p: np.sqrt((p[0] - Px) ** 2 + (p[1] - Pyc) ** 2))
-
-    # Extract points until required volume is reached
-    kept_volume = 0
-    kept_points = []
+    # Convert Py to Cartesian coordinates if needed
+    Pyc = (b * upper_scale) - Py  # Adjust Py if it is measured from the top
     
-    for point in all_points:
-        if kept_volume >= requested_volume:
-            break
-        kept_points.append(point)
-        kept_volume += thickness * (width / 100) * (length / 100)  # Same method as the original script
+    # Compute the volume per point assuming equal distribution
+    volume_per_point = total_volume / num_points  # Each point represents a small volume fraction
+    
+    # Generate all points inside the full superellipse
+    theta = np.random.uniform(0, 2 * np.pi, num_points)
+    r = np.sqrt(np.random.uniform(0, 1, num_points))  # Uniform area distribution
+    
+    x = r * a * np.sign(np.cos(theta)) * (np.abs(np.cos(theta)) ** (2 / n))
+    y = r * b * np.sign(np.sin(theta)) * (np.abs(np.sin(theta)) ** (2 / m))
+    
+    # Apply asymmetry scaling
+    y_adjusted = np.where(y > 0, y * upper_scale, y * lower_scale)
+    
+    all_points = list(zip(x, y_adjusted))
+    
+    # Sort points by their radial distance from the perforator, farthest first
+    all_points.sort(key=lambda p: np.hypot(p[0] - Px, p[1] - Pyc), reverse=True)
+    
+    # Remove points in layers to maintain shape integrity
+    remaining_volume = total_volume
+    step_size = max(1, len(all_points) // 50)  # Remove in chunks
+    
+    while remaining_volume > required_volume and len(all_points) > 3:
+        del all_points[:step_size]  # Remove a batch of farthest points
+        remaining_volume -= step_size * volume_per_point
+    
+    return all_points
 
-    return kept_points
 
 
-def visualize_extraction(width, length, Px, Py, extraction_area_points, requested_volume, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7, num_points=300):
+def visualize_extraction(width, length, Px, Py, extraction_area_points, requested_volume, total_volume, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
     a = width / 2
     b = length / 2
-    Pyc = b - Py  # Convert Py to Cartesian coordinate
+    Pyc = (b * upper_scale) - Py # Convert Py to Cartesian coordinate
+    num_points = int(total_volume)* 10
 
     # Generate the asymmetric Lame superellipse
     theta = np.linspace(0, 2 * np.pi, num_points)
@@ -191,8 +201,9 @@ def visualize_extraction(width, length, Px, Py, extraction_area_points, requeste
 
     ax.set_title(f"DIEP Flap {requested_volume:.1f}cc | Dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
     ax.legend()
+    #plt.tight_layout()
     plt.grid()
-    plt.savefig('static/extraction.png')
+    plt.savefig('static/extraction.png' , bbox_inches='tight', pad_inches=0.5)
 
     
 # Run Flask app

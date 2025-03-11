@@ -133,7 +133,7 @@ def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, r
     num_points = int(total_volume)* 10  # Number of points to generate
     
     # Convert Py to Cartesian coordinates if needed
-    Pyc = (b * upper_scale) - Py  # Adjust Py if it is measured from the top
+    Pyc = (b * upper_scale) - Py  # Py Cartesian
     
     # Compute the volume per point assuming equal distribution
     volume_per_point = total_volume / num_points  # Each point represents a small volume fraction
@@ -146,7 +146,9 @@ def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, r
     y = r * b * np.sign(np.sin(theta)) * (np.abs(np.sin(theta)) ** (2 / m))
     
     # Apply asymmetry scaling
-    y_adjusted = np.where(y > 0, y * upper_scale, y * lower_scale)
+    y_scaled = y / b  # Normalize y first
+    y_adjusted = np.where(y_scaled > 0, y_scaled * upper_scale, y_scaled * lower_scale) * b
+    #y_adjusted = np.where(y > 0, y * upper_scale, y #* lower_scale)
     
     all_points = list(zip(x, y_adjusted))
     

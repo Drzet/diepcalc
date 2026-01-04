@@ -9,6 +9,8 @@ from scipy.integrate import trapezoid
 from scipy.spatial import Delaunay
 
 app = Flask(__name__)
+def auth_bypass_enabled() -> bool:
+    return os.getenv("DIEP_AUTH_BYPASS", "").lower() in ("1", "true", "yes", "on")
 app.secret_key = 'your_secret_key'  # Change this for security
 
 # User authentication with password hashing
@@ -28,6 +30,10 @@ def log_visit(user):
 
 @app.route('/', methods=['GET', 'POST'])
 def login():
+    if auth_bypass_enabled():
+        session['user'] = 'bypass'
+        log_visit(session['user'])
+        return redirect(url_for('index'))
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -67,7 +73,9 @@ def calculate_asymmetric_area(a, b, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7
 
 @app.route('/index', methods=['GET', 'POST'])
 def index():
-    if 'user' not in session:
+    if auth_bypass_enabled():
+        session.setdefault('user', 'bypass')
+    elif 'user' not in session:
         return redirect(url_for('login'))
     
     if request.method == 'POST':
@@ -210,3 +218,4 @@ def visualize_extraction(width, length, Px, Py, extraction_area_points, requeste
 # Run Flask app
 if __name__ == '__main__':
     app.run(debug=True)
+

@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, session
 import numpy as np
 import matplotlib.pyplot as plt
 #import math
-#import os
+import os
 import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from scipy.integrate import trapezoid
@@ -218,4 +218,5 @@ def visualize_extraction(width, length, Px, Py, extraction_area_points, requeste
 # Run Flask app
 if __name__ == '__main__':
     app.run(debug=True)
+
 

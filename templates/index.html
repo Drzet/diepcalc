@@ -28,7 +28,7 @@
         </div>
 
         <div class="d-flex flex-column">
-            <label class="form-label">Thickness (cm)</label>
+            <label class="form-label">Maximum thickness (cm)</label>
             <input type="number" name="thickness" class="form-control" step="0.1" required>
         </div>
     </div>
@@ -87,8 +87,13 @@
             <div class="mt-2 text-center">
                 <h4>Results</h4>
                 <p><strong>Retained volume:</strong> {{ retained_volume }} cc</p>
-                <p><strong>{{ zone_name }} volume:</strong> {{ zone_volume }} cc</p>
-                <p class="text-muted">Geometric bands: central 85% of width and combined outer 15%; these are not perfusion zones.</p>
+                <table class="table table-sm">
+                    <thead><tr><th>Geometric zone</th><th>Area share</th><th>Thickness (cm)</th><th>Full-zone volume (cc)</th></tr></thead>
+                    <tbody>{% for name, share, zone_thickness, volume in zone_rows %}
+                        <tr><td>{{ name }}</td><td>{{ '%.1f'|format(share * 100) }}%</td><td>{{ '%.2f'|format(zone_thickness) }}</td><td>{{ '%.2f'|format(volume) }}</td></tr>
+                    {% endfor %}</tbody>
+                </table>
+                <p class="text-muted">Trial geometry and thickness model; zones do not describe perfusion. Left/right refer to the plot.</p>
                 <p><strong>Total area:</strong> {{ total_area }} cm sq</p>
                 <p><strong>Total volume:</strong> {{ total_volume }} cc</p>
                 <p><strong>Total weight:</strong> {{ total_weight }} g</p>

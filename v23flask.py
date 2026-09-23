@@ -7,6 +7,7 @@ import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from scipy.integrate import quad
 from scipy.optimize import brentq
+from functools import lru_cache
 
 
 app = Flask(__name__)
@@ -51,6 +52,37 @@ def logout():
     session.pop('user', None)
     return redirect(url_for('login'))
 
+# Trial geometry/thickness model; independent of perfusion.
+LATERAL_AREA_SHARE = 0.145  # Each lateral zone, as a share of the full flap.
+MEDIAL_AREA_SHARE = 0.5 - LATERAL_AREA_SHARE
+LATERAL_THICKNESS_FACTOR = 0.82
+
+
+@lru_cache(maxsize=32)
+def normalized_zone_boundary(n=2, m=1.2):
+    """Positive cut / half-width enclosing the specified medial AREA share."""
+    profile = lambda u: (1 - u ** n) ** (1 / m)
+    half_area = quad(profile, 0, 1, epsabs=1e-11, epsrel=1e-11)[0]
+    return brentq(lambda cut: quad(profile, 0, cut)[0] / half_area
+                  - 2 * MEDIAL_AREA_SHARE, 0, 1, xtol=1e-12)
+
+
+def zone_boundaries(width, n=2, m=1.2):
+    cut = width / 2 * normalized_zone_boundary(n, m)
+    return (-cut, 0.0, cut)
+
+
+def total_volume_factor():
+    return 2 * (MEDIAL_AREA_SHARE + LATERAL_AREA_SHARE * LATERAL_THICKNESS_FACTOR)
+
+
+def calculate_zone_volumes(total_area, thickness):
+    """Four full-zone volumes, ordered from left to right."""
+    medial = total_area * thickness * MEDIAL_AREA_SHARE
+    lateral = total_area * thickness * LATERAL_AREA_SHARE * LATERAL_THICKNESS_FACTOR
+    return (lateral, medial, medial, lateral)
+
+
 def flap_bounds(x, a, b, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
     """Vertical bounds of the existing asymmetric superellipse."""
     height = b * np.maximum(0, 1 - (np.abs(x) / a) ** n) ** (1 / m)
@@ -86,7 +118,7 @@ def index():
             if abs(Px) > a or not low - 1e-10 <= Pyc <= high + 1e-10:
                 raise ValueError("The perforator must lie within the flap boundary.")
             total_area = calculate_asymmetric_area(a, b)
-            total_volume = total_area * thickness
+            total_volume = total_area * thickness * total_volume_factor()
             if not np.isfinite(total_volume):
                 raise ValueError("The dimensions are too large to calculate.")
             if requested_volume > total_volume:
@@ -99,8 +131,11 @@ def index():
         hemi_volume = total_volume / 2
         total_weight = total_volume * 0.9
         hemi_weight = hemi_volume * 0.9
-        zone_volume = calculate_zone_volume(width, Px, total_volume)
-        zone_name = 'Central geometric band' if abs(Px) <= width * 0.85 / 2 else 'Combined outer geometric bands'
+        zone_rows = list(zip(
+            ('Left lateral', 'Left medial', 'Right medial', 'Right lateral'),
+            (LATERAL_AREA_SHARE, MEDIAL_AREA_SHARE, MEDIAL_AREA_SHARE, LATERAL_AREA_SHARE),
+            (LATERAL_THICKNESS_FACTOR * thickness, thickness, thickness, LATERAL_THICKNESS_FACTOR * thickness),
+            calculate_zone_volumes(total_area, thickness)))
         visualize_extraction(width, length, Px, Py, extraction, requested_volume, total_volume)
 
         total_volume = int(round(total_volume))
@@ -111,23 +146,9 @@ def index():
 
 
 
-        return render_template('index.html', width=width, total_area=total_area, length=length, thickness=thickness, Px=Px, Py=Py, requested_volume=requested_volume, total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, zone_volume=round(zone_volume, 2), zone_name=zone_name, retained_volume=round(extraction['volume'], 2), user=session['user'])
+        return render_template('index.html', width=width, total_area=total_area, length=length, thickness=thickness, Px=Px, Py=Py, requested_volume=requested_volume, total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, zone_rows=zone_rows, retained_volume=round(extraction['volume'], 2), user=session['user'])
 
     return render_template('index.html', user=session['user'])
-
-def calculate_zone_volume(width, Px, total_volume, n=2, m=1.2):
-    """Volume in the existing central band or the COMBINED outer bands.
-
-    These are geometric width bands, not anatomical perfusion zones.
-    Height, thickness and asymmetric scaling cancel in the area ratio.
-    """
-    if width <= 0 or not np.isfinite([width, Px, total_volume]).all() or abs(Px) > width / 2:
-        raise ValueError("Invalid geometric zone inputs.")
-    profile = lambda u: (1 - u ** n) ** (1 / m)
-    central_fraction = quad(profile, 0, 0.85)[0] / quad(profile, 0, 1)[0]
-    fraction = central_fraction if abs(Px) <= width * 0.85 / 2 else 1 - central_fraction
-    return total_volume * fraction
-
 
 def retained_bounds(x, a, b, Px, Pyc, radius, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
     low, high = flap_bounds(x, a, b, n, m, upper_scale, lower_scale)
@@ -139,7 +160,8 @@ def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, r
                                n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
     """Intersect the flap with a perforator-centred disk of solved volume.
 
-    The disk reproduces the original nearest-to-perforator selection rule.
+    The disk preserves nearest-to-perforator selection, weighted by local
+    thickness: full measured thickness medially, 82% laterally.
     Integration and radius solving do not depend on plotting resolution.
     """
     if not np.isfinite([width, length, thickness, Px, Py, required_volume]).all():
@@ -151,7 +173,8 @@ def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, r
     low, high = flap_bounds(Px, a, b, n, m, upper_scale, lower_scale)
     if abs(Px) > a or not low - 1e-10 <= Pyc <= high + 1e-10:
         raise ValueError("The perforator must lie within the flap boundary.")
-    available = calculate_asymmetric_area(a, b, n, m, upper_scale, lower_scale) * thickness
+    available = calculate_asymmetric_area(a, b, n, m, upper_scale, lower_scale) * thickness * total_volume_factor()
+    cuts = zone_boundaries(width, n, m)
     if required_volume > available:
         raise ValueError(f"Required volume exceeds the available {available:.2f} cc.")
 
@@ -161,12 +184,18 @@ def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, r
             return 0.0
         def height(x):
             low, high = retained_bounds(x, a, b, Px, Pyc, radius, n, m, upper_scale, lower_scale)
-            return max(0.0, high - low)
-        # Subintervals prevent adaptive quadrature missing small intersections.
-        return thickness * quad(height, left, right,
-            points=np.linspace(left, right, 33)[1:-1],
-            epsabs=max(1e-12, required_volume / thickness * 1e-7),
-            epsrel=1e-7, limit=250)[0]
+            local_factor = 1.0 if abs(x) <= cuts[2] else LATERAL_THICKNESS_FACTOR
+            return max(0.0, high - low) * local_factor
+        # Integrate each constant-thickness band separately, including the
+        # midline. Interior subintervals keep narrow intersections visible.
+        edges = [left] + [cut for cut in cuts if left < cut < right] + [right]
+        integral = 0.0
+        for start, end in zip(edges[:-1], edges[1:]):
+            integral += quad(height, start, end,
+                points=np.linspace(start, end, 17)[1:-1],
+                epsabs=max(1e-12, required_volume / thickness * 1e-7 / len(edges)),
+                epsrel=1e-7, limit=250)[0]
+        return thickness * integral
 
     max_radius = max(np.hypot(x - Px, y - Pyc)
                      for x in (-a, a) for y in (-b * lower_scale, b * upper_scale))
@@ -194,6 +223,10 @@ def visualize_extraction(width, length, Px, Py, extraction, requested_volume, to
         ax.set_aspect('equal')
         ax.plot(x, high, 'b-', label="Abdominoplasty Boundary")
         ax.plot(x, low, 'b-')
+        for i, cut in enumerate(zone_boundaries(width, n, m)):
+            zone_low, zone_high = flap_bounds(cut, a, b, n, m, upper_scale, lower_scale)
+            ax.plot([cut, cut], [zone_low, zone_high], color='gray', linestyle='--',
+                    label="Geometric zone boundaries" if i == 0 else None)
         ax.plot(Px, Pyc, 'ko', markersize=8, label="Perforator")
         valid = extraction['high'] >= extraction['low']
         ax.fill_between(extraction['x'], extraction['low'], extraction['high'],

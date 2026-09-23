@@ -5,8 +5,10 @@ import matplotlib.pyplot as plt
 import os
 import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
-from scipy.integrate import trapezoid
-from scipy.spatial import Delaunay
+from scipy.integrate import quad
+from scipy.optimize import brentq
+from functools import lru_cache
+
 
 app = Flask(__name__)
 def auth_bypass_enabled() -> bool:
@@ -50,26 +52,49 @@ def logout():
     session.pop('user', None)
     return redirect(url_for('login'))
 
-@app.route('/extract', methods=['GET', 'POST'])
+# Trial geometry/thickness model; independent of perfusion.
+LATERAL_AREA_SHARE = 0.145  # Each lateral zone, as a share of the full flap.
+MEDIAL_AREA_SHARE = 0.5 - LATERAL_AREA_SHARE
+LATERAL_THICKNESS_FACTOR = 0.82
+
+
+@lru_cache(maxsize=32)
+def normalized_zone_boundary(n=2, m=1.2):
+    """Positive cut / half-width enclosing the specified medial AREA share."""
+    profile = lambda u: (1 - u ** n) ** (1 / m)
+    half_area = quad(profile, 0, 1, epsabs=1e-11, epsrel=1e-11)[0]
+    return brentq(lambda cut: quad(profile, 0, cut)[0] / half_area
+                  - 2 * MEDIAL_AREA_SHARE, 0, 1, xtol=1e-12)
+
+
+def zone_boundaries(width, n=2, m=1.2):
+    cut = width / 2 * normalized_zone_boundary(n, m)
+    return (-cut, 0.0, cut)
+
+
+def total_volume_factor():
+    return 2 * (MEDIAL_AREA_SHARE + LATERAL_AREA_SHARE * LATERAL_THICKNESS_FACTOR)
+
+
+def calculate_zone_volumes(total_area, thickness):
+    """Four full-zone volumes, ordered from left to right."""
+    medial = total_area * thickness * MEDIAL_AREA_SHARE
+    lateral = total_area * thickness * LATERAL_AREA_SHARE * LATERAL_THICKNESS_FACTOR
+    return (lateral, medial, medial, lateral)
+
+
+def flap_bounds(x, a, b, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
+    """Vertical bounds of the existing asymmetric superellipse."""
+    height = b * np.maximum(0, 1 - (np.abs(x) / a) ** n) ** (1 / m)
+    return -lower_scale * height, upper_scale * height
+
 
 def calculate_asymmetric_area(a, b, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7, num_points=300):
-    # Generate asymmetric superellipse
-    theta = np.linspace(0, 2 * np.pi, num_points)
-    x = a * np.sign(np.cos(theta)) * (np.abs(np.cos(theta)) ** (2 / n))
-    y = b * np.sign(np.sin(theta)) * (np.abs(np.sin(theta)) ** (2 / m))
+    # Integrate one quadrant; num_points remains for call compatibility.
+    return 2 * a * b * (upper_scale + lower_scale) * quad(
+        lambda u: (1 - u ** n) ** (1 / m), 0, 1,
+        epsabs=1e-10, epsrel=1e-10)[0]
 
-    # Apply asymmetric scaling while keeping total height constant
-    y_adjusted = np.where(y > 0, y * upper_scale, y * lower_scale)
-
-    # Sort x values to ensure proper integration order
-    sorted_indices = np.argsort(x)
-    x_sorted = x[sorted_indices]
-    y_sorted = y_adjusted[sorted_indices]
-
-    # Integrate the positive values only
-    total_area = trapezoid(np.abs(y_sorted), x_sorted) * 2  # Multiply by 2 to account for both halves
-
-    return total_area
 
 @app.route('/index', methods=['GET', 'POST'])
 def index():
@@ -77,31 +102,41 @@ def index():
         session.setdefault('user', 'bypass')
     elif 'user' not in session:
         return redirect(url_for('login'))
-    
+
     if request.method == 'POST':
-        width = float(request.form['width'])
-        length = float(request.form['length'])
-        thickness = float(request.form['thickness'])
-        Px = float(request.form['Px'])
-        Py = float(request.form['Py'])
-        requested_volume = float(request.form['requested_volume'])
-        
-       
-        
-        # Calculate total volume using the new asymmetric superellipse
-        a = width / 2  # Semi-major axis
-        b = length / 2  # Semi-minor axis
-        total_area = calculate_asymmetric_area(a, b)
-        total_volume = total_area * thickness  # Volume of the flap
+        fields = ('width', 'length', 'thickness', 'Px', 'Py', 'requested_volume')
+        try:
+            values = {name: float(request.form[name]) for name in fields}
+            if not all(np.isfinite(v) for v in values.values()):
+                raise ValueError("All inputs must be finite numbers.")
+            width, length, thickness, Px, Py, requested_volume = (values[name] for name in fields)
+            if min(width, length, thickness, requested_volume) <= 0:
+                raise ValueError("Dimensions and required volume must be greater than zero.")
+            a, b = width / 2, length / 2
+            low, high = flap_bounds(Px, a, b)
+            Pyc = b * 1.3 - Py
+            if abs(Px) > a or not low - 1e-10 <= Pyc <= high + 1e-10:
+                raise ValueError("The perforator must lie within the flap boundary.")
+            total_area = calculate_asymmetric_area(a, b)
+            total_volume = total_area * thickness * total_volume_factor()
+            if not np.isfinite(total_volume):
+                raise ValueError("The dimensions are too large to calculate.")
+            if requested_volume > total_volume:
+                raise ValueError(f"Required volume exceeds the available {total_volume:.2f} cc.")
+            extraction = keep_only_requested_volume(
+                width, length, thickness, total_volume, Px, Py, requested_volume)
+        except (ValueError, KeyError) as exc:
+            return render_template('index.html', error=str(exc), user=session['user']), 400
+
         hemi_volume = total_volume / 2
         total_weight = total_volume * 0.9
         hemi_weight = hemi_volume * 0.9
-
-
-        extraction_area_points = keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, requested_volume)
-        
-        if extraction_area_points:
-            visualize_extraction(width, length, Px, Py, extraction_area_points, requested_volume, total_volume)
+        zone_rows = list(zip(
+            ('Left lateral', 'Left medial', 'Right medial', 'Right lateral'),
+            (LATERAL_AREA_SHARE, MEDIAL_AREA_SHARE, MEDIAL_AREA_SHARE, LATERAL_AREA_SHARE),
+            (LATERAL_THICKNESS_FACTOR * thickness, thickness, thickness, LATERAL_THICKNESS_FACTOR * thickness),
+            calculate_zone_volumes(total_area, thickness)))
+        visualize_extraction(width, length, Px, Py, extraction, requested_volume, total_volume)
 
         total_volume = int(round(total_volume))
         total_weight = int(round(total_weight))
@@ -109,114 +144,102 @@ def index():
         hemi_weight = int(round(hemi_weight))
         total_area = int(round(total_area))
 
-        
-        
-        return render_template('index.html', width=width, total_area=total_area, length=length, thickness=thickness, Px=Px, Py=Py, requested_volume=requested_volume, total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, user=session['user'])
-    
+
+
+        return render_template('index.html', width=width, total_area=total_area, length=length, thickness=thickness, Px=Px, Py=Py, requested_volume=requested_volume, total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, zone_rows=zone_rows, retained_volume=round(extraction['volume'], 2), user=session['user'])
+
     return render_template('index.html', user=session['user'])
 
-# Functions for DIEP flap extraction logic
-def calculate_zone_volume(width, Px, total_volume):
-    print(f"total_volume={total_volume}")
-    medial_width = width * 0.85
-    lateral_width = width * 0.15
-    print(f"medial_width={medial_width}")
-    medial_zone_x = (-medial_width / 2, medial_width / 2)
-    print(f"Px={Px}, Medial Zone Bounds={medial_zone_x}")
-    
-    if medial_zone_x[0] <= Px <= medial_zone_x[1]:
-        zone_area_fraction = 0.85
-    else:
-        zone_area_fraction = 0.15
-    zone1_volume = total_volume * zone_area_fraction
-    print(f"zone1_volume={zone1_volume}")
-    return total_volume * zone_area_fraction
+def retained_bounds(x, a, b, Px, Pyc, radius, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
+    low, high = flap_bounds(x, a, b, n, m, upper_scale, lower_scale)
+    circle_height = np.sqrt(np.maximum(0, radius ** 2 - (x - Px) ** 2))
+    return np.maximum(low, Pyc - circle_height), np.minimum(high, Pyc + circle_height)
 
 
-
-def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, required_volume, 
+def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, required_volume,
                                n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
-    a = width / 2  # Semi-major axis
-    b = length / 2  # Semi-minor axis
-    num_points = int(total_volume)* 10  # Number of points to generate
-    
-    # Convert Py to Cartesian coordinates if needed
-    Pyc = (b * upper_scale) - Py  # Py Cartesian
-    
-    # Compute the volume per point assuming equal distribution
-    volume_per_point = total_volume / num_points  # Each point represents a small volume fraction
-    
-    # Generate all points inside the full superellipse
-    theta = np.random.uniform(0, 2 * np.pi, num_points)
-    r = np.sqrt(np.random.uniform(0, 1, num_points))  # Uniform area distribution
-    
-    x = r * a * np.sign(np.cos(theta)) * (np.abs(np.cos(theta)) ** (2 / n))
-    y = r * b * np.sign(np.sin(theta)) * (np.abs(np.sin(theta)) ** (2 / m))
-    
-    # Apply asymmetry scaling
-    y_scaled = y / b  # Normalize y first
-    y_adjusted = np.where(y_scaled > 0, y_scaled * upper_scale, y_scaled * lower_scale) * b
-    
-    all_points = list(zip(x, y_adjusted))
-    
-    # Sort points by their radial distance from the perforator, farthest first
-    all_points.sort(key=lambda p: np.hypot(p[0] - Px, p[1] - Pyc), reverse=True)
-    
-    # Remove points in layers to maintain shape integrity
-    remaining_volume = total_volume
-    step_size = max(1, len(all_points) // 50)  # Remove in chunks
-    
-    while remaining_volume > required_volume and len(all_points) > 3:
-        del all_points[:step_size]  # Remove a batch of farthest points
-        remaining_volume -= step_size * volume_per_point
-    
-    return all_points
+    """Intersect the flap with a perforator-centred disk of solved volume.
+
+    The disk preserves nearest-to-perforator selection, weighted by local
+    thickness: full measured thickness medially, 82% laterally.
+    Integration and radius solving do not depend on plotting resolution.
+    """
+    if not np.isfinite([width, length, thickness, Px, Py, required_volume]).all():
+        raise ValueError("Inputs must be finite.")
+    if min(width, length, thickness, required_volume) <= 0:
+        raise ValueError("Dimensions and required volume must be positive.")
+    a, b = width / 2, length / 2
+    Pyc = b * upper_scale - Py
+    low, high = flap_bounds(Px, a, b, n, m, upper_scale, lower_scale)
+    if abs(Px) > a or not low - 1e-10 <= Pyc <= high + 1e-10:
+        raise ValueError("The perforator must lie within the flap boundary.")
+    available = calculate_asymmetric_area(a, b, n, m, upper_scale, lower_scale) * thickness * total_volume_factor()
+    cuts = zone_boundaries(width, n, m)
+    if required_volume > available:
+        raise ValueError(f"Required volume exceeds the available {available:.2f} cc.")
+
+    def volume(radius):
+        left, right = max(-a, Px - radius), min(a, Px + radius)
+        if left >= right:
+            return 0.0
+        def height(x):
+            low, high = retained_bounds(x, a, b, Px, Pyc, radius, n, m, upper_scale, lower_scale)
+            local_factor = 1.0 if abs(x) <= cuts[2] else LATERAL_THICKNESS_FACTOR
+            return max(0.0, high - low) * local_factor
+        # Integrate each constant-thickness band separately, including the
+        # midline. Interior subintervals keep narrow intersections visible.
+        edges = [left] + [cut for cut in cuts if left < cut < right] + [right]
+        integral = 0.0
+        for start, end in zip(edges[:-1], edges[1:]):
+            integral += quad(height, start, end,
+                points=np.linspace(start, end, 17)[1:-1],
+                epsabs=max(1e-12, required_volume / thickness * 1e-7 / len(edges)),
+                epsrel=1e-7, limit=250)[0]
+        return thickness * integral
+
+    max_radius = max(np.hypot(x - Px, y - Pyc)
+                     for x in (-a, a) for y in (-b * lower_scale, b * upper_scale))
+    if required_volume == available:
+        radius, actual_volume = max_radius, available
+    else:
+        radius = brentq(lambda r: volume(r) - required_volume, 0, max_radius,
+                        xtol=1e-10, rtol=1e-12)
+        actual_volume = volume(radius)
+    x = np.linspace(max(-a, Px - radius), min(a, Px + radius), 2001)
+    low, high = retained_bounds(x, a, b, Px, Pyc, radius, n, m, upper_scale, lower_scale)
+    return dict(x=x, low=low, high=high, radius=radius, volume=actual_volume)
 
 
-
-def visualize_extraction(width, length, Px, Py, extraction_area_points, requested_volume, total_volume, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
-    a = width / 2
-    b = length / 2
-    Pyc = (b * upper_scale) - Py # Convert Py to Cartesian coordinate
-    num_points = int(total_volume)* 10
-
-    # Generate the asymmetric Lame superellipse
-    theta = np.linspace(0, 2 * np.pi, num_points)
-    x_vals = a * np.sign(np.cos(theta)) * (np.abs(np.cos(theta)) ** (2 / n))
-    y_vals = b * np.sign(np.sin(theta)) * (np.abs(np.sin(theta)) ** (2 / m))
-    
-    # Apply asymmetric scaling
-    y_vals_adjusted = np.where(y_vals > 0, y_vals * upper_scale, y_vals * lower_scale)
-
-    # Plot updated asymmetric shape
+def visualize_extraction(width, length, Px, Py, extraction, requested_volume, total_volume,
+                         n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
+    a, b = width / 2, length / 2
+    Pyc = b * upper_scale - Py
+    x = np.linspace(-a, a, 2001)
+    low, high = flap_bounds(x, a, b, n, m, upper_scale, lower_scale)
     fig, ax = plt.subplots(figsize=(10, 10))
-    ax.set_xlim(-a - 5, a + 5)
-    ax.set_ylim(-b - 5, b + 5)
-    ax.set_aspect('equal')
+    try:
+        ax.set_xlim(-a - 5, a + 5)
+        ax.set_ylim(-b * lower_scale - 5, b * upper_scale + 5)
+        ax.set_aspect('equal')
+        ax.plot(x, high, 'b-', label="Abdominoplasty Boundary")
+        ax.plot(x, low, 'b-')
+        for i, cut in enumerate(zone_boundaries(width, n, m)):
+            zone_low, zone_high = flap_bounds(cut, a, b, n, m, upper_scale, lower_scale)
+            ax.plot([cut, cut], [zone_low, zone_high], color='gray', linestyle='--',
+                    label="Geometric zone boundaries" if i == 0 else None)
+        ax.plot(Px, Pyc, 'ko', markersize=8, label="Perforator")
+        valid = extraction['high'] >= extraction['low']
+        ax.fill_between(extraction['x'], extraction['low'], extraction['high'],
+                        where=valid, color='red', alpha=0.5, label="Extracted Region")
+        extracted_width = np.ptp(extraction['x'][valid])
+        extracted_length = max(extraction['high'][valid]) - min(extraction['low'][valid])
+        ax.set_title(f"DIEP Flap {extraction['volume']:.2f}cc | Approx. dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
+        ax.legend()
+        ax.grid()
+        fig.savefig('static/extraction.png', bbox_inches='tight', pad_inches=0.5)
+    finally:
+        plt.close(fig)
 
-    extracted_width = max(x for x, y in extraction_area_points) - min(x for x, y in extraction_area_points)
-    extracted_length = max(y for x, y in extraction_area_points) - min(y for x, y in extraction_area_points)
-    print(f"extracted_width={extracted_width}")
-    # Plot new asymmetric boundary
-    ax.plot(x_vals, y_vals_adjusted, 'b-', linewidth=2, label="Abdominoplasty Boundary")
 
-    # Mark perforator point
-    ax.plot(Px, Pyc, 'ko', markersize=8, label="Perforator")
-
-    # Plot extracted region if available
-    if extraction_area_points:
-        extracted_x, extracted_y = zip(*extraction_area_points)
-        ax.scatter(extracted_x, extracted_y, color='red', s=2, label="Extracted Region")
-
-    ax.set_title(f"DIEP Flap {requested_volume:.1f}cc | Dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
-    ax.legend()
-    #plt.tight_layout()
-    plt.grid()
-    plt.savefig('static/extraction.png' , bbox_inches='tight', pad_inches=0.5)
-
-    
-# Run Flask app
 if __name__ == '__main__':
     app.run(debug=True)
-
-

@@ -14,6 +14,7 @@
     </nav>
     <div class="container mt-5">
         <h2 class="text-center">DIEP Flap Size estimator</span></h2>
+    {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
     <form method="post" class="row g-3">
     <div class="col-md-6">
         <div class="d-flex flex-column">
@@ -54,7 +55,7 @@
         <button type="button" id="clear-form" class="btn btn-secondary">Clear</button>
     </div>
 </form>
-        
+
 <script>
     document.addEventListener("DOMContentLoaded", function () {
         const inputs = document.querySelectorAll("input");
@@ -85,6 +86,9 @@
         {% if requested_volume %}
             <div class="mt-2 text-center">
                 <h4>Results</h4>
+                <p><strong>Retained volume:</strong> {{ retained_volume }} cc</p>
+                <p><strong>{{ zone_name }} volume:</strong> {{ zone_volume }} cc</p>
+                <p class="text-muted">Geometric bands: central 85% of width and combined outer 15%; these are not perfusion zones.</p>
                 <p><strong>Total area:</strong> {{ total_area }} cm sq</p>
                 <p><strong>Total volume:</strong> {{ total_volume }} cc</p>
                 <p><strong>Total weight:</strong> {{ total_weight }} g</p>

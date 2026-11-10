@@ -120,7 +120,7 @@ class GeometryTests(unittest.TestCase):
                               response.data)
             self.assertIsNotNone(match)
             png = base64.b64decode(match.group(1), validate=True)
-            self.assertTrue(png.startswith(b'\\x89PNG\\r\\n\\x1a\\n'))
+            self.assertTrue(png.startswith(bytes.fromhex('89504e470d0a1a0a')))
             self.assertGreater(len(png), 1000)
             encoded_images.append(png)
 

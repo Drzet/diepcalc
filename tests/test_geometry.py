@@ -79,22 +79,46 @@ class GeometryTests(unittest.TestCase):
         client = app.app.test_client()
         with client.session_transaction() as session:
             session['user'] = 'test'
-        data = dict(width='30', length='12', thickness='3', Px='3', Py='4', requested_volume='500')
+        data = dict(width='30', length='12', thickness='3', Px='3', Py='4', requested_weight='500')
         with patch.object(app, 'visualize_extraction') as plot:
-            for change in [dict(requested_volume='1000'), dict(requested_volume='730'), dict(requested_volume='0'), dict(width='nan'), dict(thickness='-1'), dict(Px='100')]:
+            for change in [dict(requested_weight='1000'), dict(requested_weight='730'), dict(requested_weight='0'), dict(width='nan'), dict(thickness='-1'), dict(Px='100')]:
                 response = client.post('/index', data=data | change)
                 self.assertEqual(response.status_code, 400)
                 self.assertNotIn(b'extraction.png', response.data)
             plot.assert_not_called()
             response = client.post('/index', data=data)
             self.assertEqual(response.status_code, 200)
-            self.assertIn(b'500.0 cc', response.data)
+            self.assertIn(b'500.0 g', response.data)
             self.assertIn(b'Left lateral', response.data)
             self.assertIn(b'14.5%', response.data)
             self.assertIn(b'35.5%', response.data)
             self.assertIn(b'2.46', response.data)
             self.assertIn(b'717 cc', response.data)
             plot.assert_called_once()
+            self.assertAlmostEqual(plot.call_args.args[4]['volume'], 500 / .9, places=5)
+            self.assertIn(b'555.56 cc', response.data)
+            self.assertIn(b'Full-zone weight (g)', response.data)
+
+    def test_legacy_volume_input_not_reinterpreted_as_grams(self):
+        client = app.app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = 'test'
+        response = client.post('/index', data=dict(width=35, length=12,
+            thickness=2.6, Px=3.5, Py=1, requested_volume=500))
+        self.assertEqual(response.status_code, 400)
+
+    def test_plot_title_uses_weight_and_larger_region(self):
+        total = app.calculate_asymmetric_area(17.5, 6)*2.6*.9478
+        old = app.keep_only_requested_volume(35, 12, 2.6, total, 3.5, 1, 500)
+        new = app.keep_only_requested_volume(35, 12, 2.6, total, 3.5, 1, 500/.9)
+        self.assertGreater(new['radius'], old['radius'])
+        titles = []
+        def capture(fig, *args, **kwargs):
+            titles.append(fig.axes[0].get_title())
+        with patch('matplotlib.figure.Figure.savefig', capture):
+            app.visualize_extraction(35, 12, 3.5, 1, new, 500/.9, total)
+        self.assertIn('500.0 g', titles[0])
+        self.assertNotIn('cc', titles[0])
 
 if __name__ == '__main__':
     unittest.main()

@@ -56,6 +56,7 @@ def logout():
 LATERAL_AREA_SHARE = 0.145  # Each lateral zone, as a share of the full flap.
 MEDIAL_AREA_SHARE = 0.5 - LATERAL_AREA_SHARE
 LATERAL_THICKNESS_FACTOR = 0.82
+TISSUE_DENSITY_G_PER_CC = 0.9
 
 
 @lru_cache(maxsize=32)
@@ -104,14 +105,15 @@ def index():
         return redirect(url_for('login'))
 
     if request.method == 'POST':
-        fields = ('width', 'length', 'thickness', 'Px', 'Py', 'requested_volume')
+        fields = ('width', 'length', 'thickness', 'Px', 'Py', 'requested_weight')
         try:
             values = {name: float(request.form[name]) for name in fields}
             if not all(np.isfinite(v) for v in values.values()):
                 raise ValueError("All inputs must be finite numbers.")
-            width, length, thickness, Px, Py, requested_volume = (values[name] for name in fields)
-            if min(width, length, thickness, requested_volume) <= 0:
-                raise ValueError("Dimensions and required volume must be greater than zero.")
+            width, length, thickness, Px, Py, requested_weight = (values[name] for name in fields)
+            if min(width, length, thickness, requested_weight) <= 0:
+                raise ValueError("Dimensions and desired weight must be greater than zero.")
+            requested_volume = requested_weight / TISSUE_DENSITY_G_PER_CC
             a, b = width / 2, length / 2
             low, high = flap_bounds(Px, a, b)
             Pyc = b * 1.3 - Py
@@ -122,15 +124,15 @@ def index():
             if not np.isfinite(total_volume):
                 raise ValueError("The dimensions are too large to calculate.")
             if requested_volume > total_volume:
-                raise ValueError(f"Required volume exceeds the available {total_volume:.2f} cc.")
+                raise ValueError(f"Desired weight exceeds the available {total_volume * TISSUE_DENSITY_G_PER_CC:.2f} g.")
             extraction = keep_only_requested_volume(
                 width, length, thickness, total_volume, Px, Py, requested_volume)
         except (ValueError, KeyError) as exc:
             return render_template('index.html', error=str(exc), user=session['user']), 400
 
         hemi_volume = total_volume / 2
-        total_weight = total_volume * 0.9
-        hemi_weight = hemi_volume * 0.9
+        total_weight = total_volume * TISSUE_DENSITY_G_PER_CC
+        hemi_weight = hemi_volume * TISSUE_DENSITY_G_PER_CC
         zone_rows = list(zip(
             ('Left lateral', 'Left medial', 'Right medial', 'Right lateral'),
             (LATERAL_AREA_SHARE, MEDIAL_AREA_SHARE, MEDIAL_AREA_SHARE, LATERAL_AREA_SHARE),
@@ -146,7 +148,7 @@ def index():
 
 
 
-        return render_template('index.html', width=width, total_area=total_area, length=length, thickness=thickness, Px=Px, Py=Py, requested_volume=requested_volume, total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, zone_rows=zone_rows, retained_volume=round(extraction['volume'], 2), user=session['user'])
+        return render_template('index.html', width=width, total_area=total_area, length=length, thickness=thickness, Px=Px, Py=Py, requested_weight=requested_weight, density=TISSUE_DENSITY_G_PER_CC, retained_weight=round(extraction['volume'] * TISSUE_DENSITY_G_PER_CC, 2), total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, zone_rows=zone_rows, retained_volume=round(extraction['volume'], 2), user=session['user'])
 
     return render_template('index.html', user=session['user'])
 
@@ -233,7 +235,7 @@ def visualize_extraction(width, length, Px, Py, extraction, requested_volume, to
                         where=valid, color='red', alpha=0.5, label="Extracted Region")
         extracted_width = np.ptp(extraction['x'][valid])
         extracted_length = max(extraction['high'][valid]) - min(extraction['low'][valid])
-        ax.set_title(f"DIEP Flap {extraction['volume']:.2f}cc | Approx. dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
+        ax.set_title(f"DIEP Flap {extraction['volume'] * TISSUE_DENSITY_G_PER_CC:.1f} g | Approx. dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
         ax.legend()
         ax.grid()
         fig.savefig('static/extraction.png', bbox_inches='tight', pad_inches=0.5)

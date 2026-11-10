@@ -101,12 +101,12 @@ def perfusion_zone4_indices(Px, width, n=2, m=1.2):
     """Zones separated from the perforator by at least one whole geometric zone.
 
     Zone definitions run from left lateral (0) to right lateral (3).
-    At an exactly midline perforator, both lateral zones meet the rule.
+    A perforator at X=0 is invalid because its side is undefined.
     At either medial/lateral boundary, the perforator belongs to the medial zone.
     """
     cuts = zone_boundaries(width, n, m)
     if Px == 0:
-        return (0, 3)
+        raise ValueError('Perforator X cannot equal 0 (midline).')
     # At an exact medial/lateral boundary, assign the perforator to the
     # medial zone on either side of the midline (mirror-symmetric tie rule).
     perforator_zone = int(np.searchsorted(cuts, Px,

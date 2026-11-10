@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 #import math
 import os
 import datetime
+from io import BytesIO
+import base64
 from werkzeug.security import generate_password_hash, check_password_hash
 from scipy.integrate import quad
 from scipy.optimize import brentq
@@ -164,7 +166,7 @@ def index():
             (LATERAL_THICKNESS_FACTOR * thickness, thickness, thickness, LATERAL_THICKNESS_FACTOR * thickness),
             calculate_zone_volumes(total_area, thickness)))
         extracted_width, extracted_length = extraction_dimensions(extraction)
-        visualize_extraction(width, length, Px, Pyc, extraction, requested_volume, total_volume)
+        plot_data_uri = visualize_extraction(width, length, Px, Pyc, extraction, requested_volume, total_volume)
 
         total_volume = int(round(total_volume))
         total_weight = int(round(total_weight))
@@ -184,6 +186,7 @@ def index():
             zone_rows=zone_rows, extracted_width=extracted_width,
             extracted_length=extracted_length, retained_volume=round(extraction['volume'], 2),
             user=session['user'], exclude_zone4=exclude_zone4,
+            plot_data_uri=plot_data_uri,
             zone4_volume=round(extraction['zone4_volume'], 2),
             zone4_weight=round(extraction['zone4_volume'] * TISSUE_DENSITY_G_PER_CC, 2),
             zone4_limited=extraction['zone4_limited'],
@@ -330,7 +333,10 @@ def visualize_extraction(width, length, Px, Pyc, extraction, requested_volume, t
         ax.set_title(f"DIEP Flap {extraction['volume'] * TISSUE_DENSITY_G_PER_CC:.1f} g | Approx. dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
         ax.legend()
         ax.grid()
-        fig.savefig('static/extraction.png', bbox_inches='tight', pad_inches=0.5)
+        # Each request owns its image: no shared on-disk PNG or browser cache key.
+        image = BytesIO()
+        fig.savefig(image, format='png', bbox_inches='tight', pad_inches=0.5)
+        return 'data:image/png;base64,' + base64.b64encode(image.getvalue()).decode('ascii')
     finally:
         plt.close(fig)
 

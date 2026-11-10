@@ -230,6 +230,11 @@ def visualize_extraction(width, length, Px, Pyc, extraction, requested_volume, t
     try:
         ax.set_xlim(-a - 5, a + 5)
         ax.set_ylim(-b * lower_scale - 5, b * upper_scale + 5)
+        # Display-only Y coordinates: 0 at the highest superior incision
+        # (x=0), increasing inferiorly. All geometry stays Cartesian.
+        y_ticks = np.linspace(-b * lower_scale, b * upper_scale, 7)
+        ax.set_yticks(y_ticks, [f'{b * upper_scale - y:.1f}' for y in y_ticks])
+        ax.set_ylabel("Distance below highest superior incision (cm)")
         ax.set_aspect('equal')
         ax.plot(x, high, 'b-', label="Abdominoplasty Boundary")
         ax.plot(x, low, 'b-')

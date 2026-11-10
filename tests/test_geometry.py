@@ -143,6 +143,43 @@ class GeometryTests(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertAlmostEqual(found[0], pyc)
 
+    def test_plot_y_axis_relabel_does_not_change_geometry(self):
+        # The superior midline is 0 cm; the lower midline is the full
+        # flap length. The underlying Cartesian coordinates remain intact.
+        width, length, thickness, px, pyc = 30, 12, 3, 10, 0.75
+        a, b = width / 2, length / 2
+        total = app.calculate_asymmetric_area(a, b) * thickness * .9478
+        extraction = app.keep_only_requested_volume(
+            width, length, thickness, total, px, pyc, 1)
+
+        def capture(fig, *args, **kwargs):
+            ax = fig.axes[0]
+            ticks = ax.get_yticks()
+            labels = [tick.get_text() for tick in ax.get_yticklabels()]
+            self.assertEqual(len(ticks), 7)
+            self.assertEqual(labels[-1], '0.0')
+            self.assertEqual(labels[0], '12.0')
+            for tick, label in zip(ticks, labels):
+                self.assertAlmostEqual(float(label), b * 1.3 - tick,
+                                       places=1)
+            self.assertEqual(ax.get_ylabel(),
+                             "Distance below highest superior incision (cm)")
+            self.assertEqual(ax.get_xlim(), (-a - 5, a + 5))
+            self.assertEqual(ax.get_ylim(), (-b * .7 - 5, b * 1.3 + 5))
+            edge = next(line for line in ax.lines
+                        if line.get_label() == 'Abdominoplasty Boundary')
+            np.testing.assert_allclose(
+                edge.get_ydata(),
+                app.flap_bounds(edge.get_xdata(), a, b)[1])
+            perforator = next(line for line in ax.lines
+                              if line.get_label() == 'Perforator')
+            self.assertAlmostEqual(perforator.get_xdata()[0], px)
+            self.assertAlmostEqual(perforator.get_ydata()[0], pyc)
+
+        with patch('matplotlib.figure.Figure.savefig', capture):
+            app.visualize_extraction(
+                width, length, px, pyc, extraction, 1, total)
+
     def test_legacy_volume_input_not_reinterpreted_as_grams(self):
         client = app.app.test_client()
         with client.session_transaction() as session:

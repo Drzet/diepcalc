@@ -102,11 +102,15 @@ def perfusion_zone4_indices(Px, width, n=2, m=1.2):
 
     Zone definitions run from left lateral (0) to right lateral (3).
     At an exactly midline perforator, both lateral zones meet the rule.
+    At either medial/lateral boundary, the perforator belongs to the medial zone.
     """
     cuts = zone_boundaries(width, n, m)
     if Px == 0:
         return (0, 3)
-    perforator_zone = int(np.searchsorted(cuts, Px, side='right'))
+    # At an exact medial/lateral boundary, assign the perforator to the
+    # medial zone on either side of the midline (mirror-symmetric tie rule).
+    perforator_zone = int(np.searchsorted(cuts, Px,
+                            side='right' if Px < 0 else 'left'))
     return tuple(i for i in range(4) if abs(i - perforator_zone) >= 2)
 
 

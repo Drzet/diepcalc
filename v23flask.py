@@ -138,6 +138,7 @@ def index():
             (LATERAL_AREA_SHARE, MEDIAL_AREA_SHARE, MEDIAL_AREA_SHARE, LATERAL_AREA_SHARE),
             (LATERAL_THICKNESS_FACTOR * thickness, thickness, thickness, LATERAL_THICKNESS_FACTOR * thickness),
             calculate_zone_volumes(total_area, thickness)))
+        extracted_width, extracted_length = extraction_dimensions(extraction)
         visualize_extraction(width, length, Px, Py, extraction, requested_volume, total_volume)
 
         total_volume = int(round(total_volume))
@@ -148,9 +149,16 @@ def index():
 
 
 
-        return render_template('index.html', width=width, total_area=total_area, length=length, thickness=thickness, Px=Px, Py=Py, requested_weight=requested_weight, density=TISSUE_DENSITY_G_PER_CC, retained_weight=round(extraction['volume'] * TISSUE_DENSITY_G_PER_CC, 2), total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, zone_rows=zone_rows, retained_volume=round(extraction['volume'], 2), user=session['user'])
+        return render_template('index.html', width=width, total_area=total_area, length=length, thickness=thickness, Px=Px, Py=Py, requested_weight=requested_weight, density=TISSUE_DENSITY_G_PER_CC, retained_weight=round(extraction['volume'] * TISSUE_DENSITY_G_PER_CC, 2), total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, zone_rows=zone_rows, extracted_width=extracted_width, extracted_length=extracted_length, retained_volume=round(extraction['volume'], 2), user=session['user'])
 
     return render_template('index.html', user=session['user'])
+
+def extraction_dimensions(extraction):
+    """Bounding dimensions shared by the summary and plot."""
+    valid = extraction['high'] >= extraction['low']
+    return (np.ptp(extraction['x'][valid]),
+            max(extraction['high'][valid]) - min(extraction['low'][valid]))
+
 
 def retained_bounds(x, a, b, Px, Pyc, radius, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
     low, high = flap_bounds(x, a, b, n, m, upper_scale, lower_scale)
@@ -233,8 +241,7 @@ def visualize_extraction(width, length, Px, Py, extraction, requested_volume, to
         valid = extraction['high'] >= extraction['low']
         ax.fill_between(extraction['x'], extraction['low'], extraction['high'],
                         where=valid, color='red', alpha=0.5, label="Extracted Region")
-        extracted_width = np.ptp(extraction['x'][valid])
-        extracted_length = max(extraction['high'][valid]) - min(extraction['low'][valid])
+        extracted_width, extracted_length = extraction_dimensions(extraction)
         ax.set_title(f"DIEP Flap {extraction['volume'] * TISSUE_DENSITY_G_PER_CC:.1f} g | Approx. dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
         ax.legend()
         ax.grid()

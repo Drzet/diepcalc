@@ -97,6 +97,23 @@ def calculate_asymmetric_area(a, b, n=2, m=1.2, upper_scale=1.3, lower_scale=0.7
         epsabs=1e-10, epsrel=1e-10)[0]
 
 
+def perfusion_zone4_indices(Px, width, n=2, m=1.2):
+    """Zones separated from the perforator by at least one whole geometric zone.
+
+    Zone definitions run from left lateral (0) to right lateral (3).
+    At an exactly midline perforator, both lateral zones meet the rule.
+    """
+    cuts = zone_boundaries(width, n, m)
+    if Px == 0:
+        return (0, 3)
+    perforator_zone = int(np.searchsorted(cuts, Px, side='right'))
+    return tuple(i for i in range(4) if abs(i - perforator_zone) >= 2)
+
+
+def zone4_mask(x, zone_indices, cuts):
+    return np.isin(np.searchsorted(cuts, x, side='right'), zone_indices)
+
+
 @app.route('/index', methods=['GET', 'POST'])
 def index():
     if auth_bypass_enabled():
@@ -111,6 +128,7 @@ def index():
             if not all(np.isfinite(v) for v in values.values()):
                 raise ValueError("All inputs must be finite numbers.")
             width, length, thickness, Px, Py, requested_weight = (values[name] for name in fields)
+            exclude_zone4 = request.form.get('exclude_zone4') == 'on'
             if min(width, length, thickness, requested_weight) <= 0:
                 raise ValueError("Dimensions and desired weight must be greater than zero.")
             requested_volume = requested_weight / TISSUE_DENSITY_G_PER_CC
@@ -124,12 +142,14 @@ def index():
             total_volume = total_area * thickness * total_volume_factor()
             if not np.isfinite(total_volume):
                 raise ValueError("The dimensions are too large to calculate.")
-            if requested_volume > total_volume:
+            if not exclude_zone4 and requested_volume > total_volume:
                 raise ValueError(f"Desired weight exceeds the available {total_volume * TISSUE_DENSITY_G_PER_CC:.2f} g.")
             extraction = keep_only_requested_volume(
-                width, length, thickness, total_volume, Px, Pyc, requested_volume)
+                width, length, thickness, total_volume, Px, Pyc, requested_volume,
+                exclude_zone4=exclude_zone4)
         except (ValueError, KeyError) as exc:
-            return render_template('index.html', error=str(exc), user=session['user']), 400
+            return render_template('index.html', error=str(exc), user=session['user'],
+                                   exclude_zone4=request.form.get('exclude_zone4') == 'on'), 400
 
         hemi_volume = total_volume / 2
         total_weight = total_volume * TISSUE_DENSITY_G_PER_CC
@@ -150,13 +170,29 @@ def index():
 
 
 
-        return render_template('index.html', width=width, total_area=total_area, length=length, thickness=thickness, Px=Px, Py=Py, requested_weight=requested_weight, density=TISSUE_DENSITY_G_PER_CC, retained_weight=round(extraction['volume'] * TISSUE_DENSITY_G_PER_CC, 2), total_volume=total_volume, hemi_volume=hemi_volume, hemi_weight=hemi_weight, total_weight=total_weight, zone_rows=zone_rows, extracted_width=extracted_width, extracted_length=extracted_length, retained_volume=round(extraction['volume'], 2), user=session['user'])
+        return render_template(
+            'index.html', width=width, total_area=total_area, length=length,
+            thickness=thickness, Px=Px, Py=Py, requested_weight=requested_weight,
+            density=TISSUE_DENSITY_G_PER_CC,
+            retained_weight=round(extraction['volume'] * TISSUE_DENSITY_G_PER_CC, 2),
+            total_volume=total_volume, hemi_volume=hemi_volume,
+            hemi_weight=hemi_weight, total_weight=total_weight,
+            zone_rows=zone_rows, extracted_width=extracted_width,
+            extracted_length=extracted_length, retained_volume=round(extraction['volume'], 2),
+            user=session['user'], exclude_zone4=exclude_zone4,
+            zone4_volume=round(extraction['zone4_volume'], 2),
+            zone4_weight=round(extraction['zone4_volume'] * TISSUE_DENSITY_G_PER_CC, 2),
+            zone4_limited=extraction['zone4_limited'],
+            max_valid_weight=round(extraction['max_valid_volume'] * TISSUE_DENSITY_G_PER_CC, 2))
 
-    return render_template('index.html', user=session['user'])
+    return render_template('index.html', user=session['user'], exclude_zone4=False)
 
 def extraction_dimensions(extraction):
     """Bounding dimensions shared by the summary and plot."""
     valid = extraction['high'] >= extraction['low']
+    if extraction.get('exclude_zone4', False):
+        cuts = zone_boundaries(extraction['width'], extraction['n'], extraction['m'])
+        valid &= ~zone4_mask(extraction['x'], extraction['zone4_indices'], cuts)
     return (np.ptp(extraction['x'][valid]),
             max(extraction['high'][valid]) - min(extraction['low'][valid]))
 
@@ -168,13 +204,12 @@ def retained_bounds(x, a, b, Px, Pyc, radius, n=2, m=1.2, upper_scale=1.3, lower
 
 
 def keep_only_requested_volume(width, length, thickness, total_volume, Px, Pyc, required_volume,
-                               n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
-    """Intersect the flap with a perforator-centred disk of solved volume.
+                               n=2, m=1.2, upper_scale=1.3, lower_scale=0.7,
+                               exclude_zone4=False):
+    """Extract a perforator-centred disk, optionally excluding perfusion Zone IV.
 
-    The disk preserves nearest-to-perforator selection, weighted by local
-    thickness: full measured thickness medially, 82% laterally.
-    Integration and radius solving do not depend on plotting resolution.
-    Pyc is the already-converted Cartesian Y coordinate of the perforator.
+    All radius integrations are split at the existing four geometric zones.
+    Pyc is the Cartesian perforator Y calculated by index(); no conversion here.
     """
     if not np.isfinite([width, length, thickness, Px, Pyc, required_volume]).all():
         raise ValueError("Inputs must be finite.")
@@ -184,42 +219,71 @@ def keep_only_requested_volume(width, length, thickness, total_volume, Px, Pyc, 
     low, high = flap_bounds(Px, a, b, n, m, upper_scale, lower_scale)
     if abs(Px) > a or not low - 1e-10 <= Pyc <= high + 1e-10:
         raise ValueError("The perforator must lie within the flap boundary.")
-    available = calculate_asymmetric_area(a, b, n, m, upper_scale, lower_scale) * thickness * total_volume_factor()
+
+    total_area = calculate_asymmetric_area(a, b, n, m, upper_scale, lower_scale)
+    available = total_area * thickness * total_volume_factor()
     cuts = zone_boundaries(width, n, m)
-    if required_volume > available:
+    zone4_indices = perfusion_zone4_indices(Px, width, n, m)
+    zone_maxima = calculate_zone_volumes(total_area, thickness)
+    max_valid_volume = available - sum(zone_maxima[i] for i in zone4_indices)
+
+    if not exclude_zone4 and required_volume > available:
         raise ValueError(f"Required volume exceeds the available {available:.2f} cc.")
 
-    def volume(radius):
+    def per_zone_volumes(radius):
         left, right = max(-a, Px - radius), min(a, Px + radius)
+        volumes = np.zeros(4)
         if left >= right:
-            return 0.0
+            return volumes
+
         def height(x):
-            low, high = retained_bounds(x, a, b, Px, Pyc, radius, n, m, upper_scale, lower_scale)
-            local_factor = 1.0 if abs(x) <= cuts[2] else LATERAL_THICKNESS_FACTOR
-            return max(0.0, high - low) * local_factor
-        # Integrate each constant-thickness band separately, including the
-        # midline. Interior subintervals keep narrow intersections visible.
+            bottom, top = retained_bounds(x, a, b, Px, Pyc, radius,
+                                          n, m, upper_scale, lower_scale)
+            return max(0.0, top - bottom)
+
         edges = [left] + [cut for cut in cuts if left < cut < right] + [right]
-        integral = 0.0
-        for start, end in zip(edges[:-1], edges[1:]):
-            integral += quad(height, start, end,
-                points=np.linspace(start, end, 17)[1:-1],
-                epsabs=max(1e-12, required_volume / thickness * 1e-7 / len(edges)),
-                epsrel=1e-7, limit=250)[0]
-        return thickness * integral
+        for left_edge, right_edge in zip(edges[:-1], edges[1:]):
+            idx = int(np.searchsorted(cuts, (left_edge + right_edge) / 2, side='right'))
+            factor = 1.0 if idx in (1, 2) else LATERAL_THICKNESS_FACTOR
+            integral = quad(height, left_edge, right_edge,
+                            points=np.linspace(left_edge, right_edge, 17)[1:-1],
+                            epsabs=max(1e-12, required_volume / thickness * 1e-7 / len(edges)),
+                            epsrel=1e-7, limit=250)[0]
+            volumes[idx] += thickness * factor * integral
+        return volumes
+
+    def included_volumes(radius):
+        volumes = per_zone_volumes(radius)
+        if exclude_zone4:
+            volumes[list(zone4_indices)] = 0
+        return volumes
+
+    def volume(radius):
+        return float(included_volumes(radius).sum())
 
     max_radius = max(np.hypot(x - Px, y - Pyc)
                      for x in (-a, a) for y in (-b * lower_scale, b * upper_scale))
-    if required_volume == available:
-        radius, actual_volume = max_radius, available
-    else:
-        radius = brentq(lambda r: volume(r) - required_volume, 0, max_radius,
-                        xtol=1e-10, rtol=1e-12)
-        actual_volume = volume(radius)
-    x = np.linspace(max(-a, Px - radius), min(a, Px + radius), 2001)
-    low, high = retained_bounds(x, a, b, Px, Pyc, radius, n, m, upper_scale, lower_scale)
-    return dict(x=x, low=low, high=high, radius=radius, volume=actual_volume)
+    capacity = max_valid_volume if exclude_zone4 else available
+    target_volume = min(required_volume, capacity) if exclude_zone4 else required_volume
+    zone4_limited = bool(exclude_zone4 and required_volume > capacity + 1e-8)
 
+    if np.isclose(target_volume, capacity, rtol=1e-12, atol=1e-9):
+        radius = max_radius
+    else:
+        radius = brentq(lambda r: volume(r) - target_volume, 0, max_radius,
+                        xtol=1e-10, rtol=1e-12)
+
+    zone_volumes = included_volumes(radius)
+    actual_volume = float(zone_volumes.sum())
+    x = np.linspace(max(-a, Px - radius), min(a, Px + radius), 2001)
+    low, high = retained_bounds(x, a, b, Px, Pyc, radius,
+                                n, m, upper_scale, lower_scale)
+    return dict(x=x, low=low, high=high, radius=radius, volume=actual_volume,
+                zone_volumes=zone_volumes, zone4_indices=zone4_indices,
+                zone4_volume=float(sum(zone_volumes[i] for i in zone4_indices)),
+                max_valid_volume=max_valid_volume,
+                exclude_zone4=exclude_zone4, zone4_limited=zone4_limited,
+                width=width, n=n, m=m)
 
 def visualize_extraction(width, length, Px, Pyc, extraction, requested_volume, total_volume,
                          n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
@@ -244,8 +308,20 @@ def visualize_extraction(width, length, Px, Pyc, extraction, requested_volume, t
                     label="Geometric zone boundaries" if i == 0 else None)
         ax.plot(Px, Pyc, 'ko', markersize=8, label="Perforator")
         valid = extraction['high'] >= extraction['low']
+        zone4 = zone4_mask(extraction['x'], extraction['zone4_indices'],
+                           zone_boundaries(width, n, m))
         ax.fill_between(extraction['x'], extraction['low'], extraction['high'],
-                        where=valid, color='red', alpha=0.5, label="Extracted Region")
+                        where=valid & ~zone4, color='red', alpha=0.5,
+                        label="Extracted Region")
+        if extraction['exclude_zone4']:
+            excluded_on_flap = zone4_mask(x, extraction['zone4_indices'],
+                                          zone_boundaries(width, n, m))
+            ax.fill_between(x, low, high, where=excluded_on_flap,
+                            color='lightgray', alpha=0.8, label="Excluded Zone 4")
+        elif np.any(valid & zone4):
+            ax.fill_between(extraction['x'], extraction['low'], extraction['high'],
+                            where=valid & zone4, color='purple', alpha=0.6,
+                            label="Zone 4 Portion")
         extracted_width, extracted_length = extraction_dimensions(extraction)
         ax.set_title(f"DIEP Flap {extraction['volume'] * TISSUE_DENSITY_G_PER_CC:.1f} g | Approx. dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
         ax.legend()

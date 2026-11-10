@@ -180,6 +180,100 @@ class GeometryTests(unittest.TestCase):
             app.visualize_extraction(
                 width, length, px, pyc, extraction, 1, total)
 
+    def test_zone4_identification_relative_to_perforator(self):
+        for px, expected in [(-12, (2, 3)), (-3, (3,)),
+                             (0, (0, 3)), (3, (0,)), (12, (0, 1))]:
+            with self.subTest(px=px):
+                self.assertEqual(app.perfusion_zone4_indices(px, 30), expected)
+
+    def test_zone4_unticked_preserves_requested_volume_and_tracks_zone4(self):
+        total = app.calculate_asymmetric_area(15, 6) * 3 * .9478
+        pyc = app.flap_bounds(-3, 15, 6)[1] - 4
+        target = 600 / .9
+        original = app.keep_only_requested_volume(30, 12, 3, total, -3, pyc, target)
+        self.assertAlmostEqual(original['volume'], target, places=5)
+        self.assertAlmostEqual(sum(original['zone_volumes']), target, places=5)
+        self.assertGreater(original['zone4_volume'], 0)
+        self.assertAlmostEqual(original['zone4_volume'],
+                               original['zone_volumes'][3], places=5)
+        self.assertFalse(original['zone4_limited'])
+
+        mirrored = app.keep_only_requested_volume(30, 12, 3, total, 3, pyc, target)
+        self.assertAlmostEqual(mirrored['zone4_volume'],
+                               original['zone4_volume'], places=5)
+
+    def test_zone4_exclusion_solves_target_or_caps_at_three_zone_capacity(self):
+        total = app.calculate_asymmetric_area(15, 6) * 3 * .9478
+        pyc = app.flap_bounds(-3, 15, 6)[1] - 4
+        smaller = app.keep_only_requested_volume(
+            30, 12, 3, total, -3, pyc, 300 / .9, exclude_zone4=True)
+        self.assertAlmostEqual(smaller['volume'], 300 / .9, places=5)
+        self.assertEqual(smaller['zone4_volume'], 0)
+        self.assertFalse(smaller['zone4_limited'])
+
+        limited = app.keep_only_requested_volume(
+            30, 12, 3, total, -3, pyc, 600 / .9, exclude_zone4=True)
+        max_volume = total - app.calculate_zone_volumes(
+            app.calculate_asymmetric_area(15, 6), 3)[3]
+        self.assertTrue(limited['zone4_limited'])
+        self.assertEqual(limited['zone4_volume'], 0)
+        self.assertEqual(limited['zone_volumes'][3], 0)
+        self.assertAlmostEqual(limited['volume'], max_volume, places=5)
+        self.assertAlmostEqual(limited['max_valid_volume'], max_volume, places=5)
+        self.assertLess(app.extraction_dimensions(limited)[0], 30)
+
+        # Even a request above the whole-flap capacity is capped when
+        # exclusion is enabled, rather than rejected.
+        bigger = app.keep_only_requested_volume(
+            30, 12, 3, total, -3, pyc, 800 / .9, exclude_zone4=True)
+        self.assertAlmostEqual(bigger['volume'], max_volume, places=5)
+
+    def test_zone4_plot_colours_and_exclusion(self):
+        total = app.calculate_asymmetric_area(15, 6) * 3 * .9478
+        pyc = app.flap_bounds(-3, 15, 6)[1] - 4
+        for exclude, target, expected_label in [
+            (False, 600 / .9, "Zone 4 Portion"),
+            (True, 600 / .9, "Excluded Zone 4"),
+        ]:
+            with self.subTest(exclude=exclude):
+                extraction = app.keep_only_requested_volume(
+                    30, 12, 3, total, -3, pyc, target,
+                    exclude_zone4=exclude)
+                def capture(fig, *args, **kwargs):
+                    labels = [c.get_label() for c in fig.axes[0].collections]
+                    self.assertIn("Extracted Region", labels)
+                    self.assertIn(expected_label, labels)
+                    self.assertEqual(
+                        "Excluded Zone 4" in labels, exclude)
+                with patch('matplotlib.figure.Figure.savefig', capture):
+                    app.visualize_extraction(
+                        30, 12, -3, pyc, extraction, target, total)
+
+    def test_zone4_checkbox_http_and_capped_weight(self):
+        client = app.app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = 'test'
+        data = dict(width='30', length='12', thickness='3',
+                    Px='-3', Py='4', requested_weight='600')
+        with patch.object(app, 'visualize_extraction'):
+            included = client.post('/index', data=data)
+            self.assertEqual(included.status_code, 200)
+            self.assertNotIn(b'zone 4 needed to satisfy request', included.data)
+            self.assertIn(b'Exclude zone 4', included.data)
+            excluded = client.post('/index',
+                                   data=data | dict(exclude_zone4='on'))
+            self.assertEqual(excluded.status_code, 200)
+            self.assertIn(b'zone 4 needed to satisfy request', excluded.data)
+            self.assertIn(b'Estimated retained weight:', excluded.data)
+            self.assertIn(b'Zone 4 retained: 0.0 g', excluded.data)
+            self.assertIn(b'checked', excluded.data)
+            # Request above full capacity remains an error unless Zone IV
+            # is excluded, in which case the attainable maximum is shown.
+            self.assertEqual(client.post('/index',
+                data=data | dict(requested_weight='800')).status_code, 400)
+            self.assertEqual(client.post('/index',
+                data=data | dict(requested_weight='800', exclude_zone4='on')).status_code, 200)
+
     def test_legacy_volume_input_not_reinterpreted_as_grams(self):
         client = app.app.test_client()
         with client.session_transaction() as session:

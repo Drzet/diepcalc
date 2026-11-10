@@ -51,6 +51,11 @@
     </div>
 
     <div class="col-12 text-center">
+        <div class="form-check d-flex justify-content-center gap-2 mb-2">
+            <input class="form-check-input" type="checkbox" id="exclude_zone4"
+                   name="exclude_zone4" value="on" {% if exclude_zone4 %}checked{% endif %}>
+            <label class="form-check-label" for="exclude_zone4">Exclude zone 4</label>
+        </div>
         <button type="submit" class="btn btn-success">Calculate</button>
         <button type="button" id="clear-form" class="btn btn-secondary">Clear</button>
     </div>
@@ -63,13 +68,17 @@
         // Restore saved values
         inputs.forEach(input => {
             const savedValue = localStorage.getItem(input.name);
-            if (savedValue) input.value = savedValue;
+            if (savedValue !== null) {
+                if (input.type === "checkbox") input.checked = savedValue === "true";
+                else input.value = savedValue;
+            }
         });
 
         // Save values when changed
         inputs.forEach(input => {
             input.addEventListener("input", () => {
-                localStorage.setItem(input.name, input.value);
+                localStorage.setItem(input.name,
+                    input.type === "checkbox" ? input.checked : input.value);
             });
         });
 
@@ -77,7 +86,8 @@
         document.getElementById("clear-form").addEventListener("click", () => {
             inputs.forEach(input => {
                 localStorage.removeItem(input.name);
-                input.value = "";
+                if (input.type === "checkbox") input.checked = false;
+                else input.value = "";
             });
         });
     });
@@ -85,11 +95,16 @@
 
         {% if requested_weight %}
             <div class="mt-2 text-center">
+                {% if zone4_limited %}
+                    <p class="alert alert-warning" role="alert">zone 4 needed to satisfy request</p>
+                {% endif %}
                 <p id="flap-summary" class="d-flex flex-wrap justify-content-center gap-3 fw-semibold" style="font-size: clamp(1.25rem, 3vw, 1.75rem);">
                     <span>Requested weight: {{ '%.1f'|format(requested_weight) }} g</span>
-                    <span>Estimated volume: {{ retained_volume }} cc</span>
+                    <span>Estimated retained weight: {{ retained_weight }} g</span>
+                    <span>Estimated retained volume: {{ retained_volume }} cc</span>
                     <span>Estimated dimensions: {{ '%.1f'|format(extracted_width) }} × {{ '%.1f'|format(extracted_length) }} cm</span>
                 </p>
+                <p>Zone 4 retained: {{ zone4_weight }} g ({{ zone4_volume }} cc)</p>
                 <img src="{{ url_for('static', filename='extraction.png') }}" class="img-fluid mt-3" style="max-width: 100%;" alt="Extracted Visualization">
                 <div class="mt-4">
                 <p><strong>Total area:</strong> {{ total_area }} cm sq</p>

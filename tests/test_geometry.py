@@ -186,6 +186,47 @@ class GeometryTests(unittest.TestCase):
             with self.subTest(px=px):
                 self.assertEqual(app.perfusion_zone4_indices(px, 30), expected)
 
+    def test_zone4_medial_lateral_boundary_is_mirror_symmetric(self):
+        width, length, thickness = 30, 12, 3
+        cut = app.zone_boundaries(width)[2]
+        self.assertEqual(app.perfusion_zone4_indices(-cut, width), (3,))
+        self.assertEqual(app.perfusion_zone4_indices(cut, width), (0,))
+
+        # Immediately lateral to each boundary, both cases classify
+        # two contralateral zones as IV; immediately medial, only one.
+        eps = 1e-6
+        for offset, expected_left, expected_right in [
+            (-eps, (2, 3), (0, 1)),
+            (0, (3,), (0,)),
+            (eps, (3,), (0,)),
+        ]:
+            with self.subTest(offset=offset):
+                self.assertEqual(
+                    app.perfusion_zone4_indices(-cut + offset, width), expected_left)
+                self.assertEqual(
+                    app.perfusion_zone4_indices(cut - offset, width), expected_right)
+
+        total = app.calculate_asymmetric_area(width / 2, length / 2) * thickness * .9478
+        results = []
+        for px in (-cut, cut):
+            # Same 4 cm distance from the local upper incision.
+            pyc = app.flap_bounds(px, width / 2, length / 2)[1] - 4
+            extracted = app.keep_only_requested_volume(
+                width, length, thickness, total, px, pyc,
+                600 / .9, exclude_zone4=True)
+            results.append(extracted)
+            self.assertTrue(extracted['zone4_limited'])
+            self.assertAlmostEqual(
+                extracted['volume'] * app.TISSUE_DENSITY_G_PER_CC, 564.11,
+                delta=.02)
+            self.assertEqual(extracted['zone4_volume'], 0)
+
+        self.assertAlmostEqual(results[0]['volume'], results[1]['volume'], places=7)
+        self.assertAlmostEqual(results[0]['radius'], results[1]['radius'], places=7)
+        np.testing.assert_allclose(
+            results[0]['zone_volumes'], results[1]['zone_volumes'][::-1],
+            atol=1e-5, rtol=1e-6)
+
     def test_zone4_unticked_preserves_requested_volume_and_tracks_zone4(self):
         total = app.calculate_asymmetric_area(15, 6) * 3 * .9478
         pyc = app.flap_bounds(-3, 15, 6)[1] - 4

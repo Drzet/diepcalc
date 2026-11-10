@@ -13,15 +13,15 @@ class GeometryTests(unittest.TestCase):
 
     def test_requested_volumes_independently_integrated(self):
         total = app.calculate_asymmetric_area(15, 6) * 3 * 0.9478
-        for px, py in [(3, 4), (0, 0), (0, 12), (15, 7.8), (10, 7.8)]:
+        for px, pyc in [(3, 3.8), (0, 7.8), (0, -4.2), (15, 0), (10, 0)]:
             for target in [0.1, 10, 200, 500, total]:
-                with self.subTest(px=px, py=py, target=target):
-                    result = app.keep_only_requested_volume(30, 12, 3, total, px, py, target)
+                with self.subTest(px=px, pyc=pyc, target=target):
+                    result = app.keep_only_requested_volume(30, 12, 3, total, px, pyc, target)
                     radius = result['radius']
                     x = np.linspace(max(-15, px-radius), min(15, px+radius), 100001)
                     edge = 6 * np.maximum(0, 1-(x/15)**2)**(1/1.2)
                     disk = np.sqrt(np.maximum(0, radius**2-(x-px)**2))
-                    cy = 7.8-py
+                    cy = pyc
                     height = np.maximum(0, np.minimum(1.3*edge, cy+disk)-np.maximum(-0.7*edge, cy-disk))
                     cut = app.zone_boundaries(30)[2]
                     # Independent dense Simpson integration, split at thickness steps.
@@ -38,7 +38,7 @@ class GeometryTests(unittest.TestCase):
                     self.assertAlmostEqual(result['volume'], target, delta=1e-5)
 
     def test_deterministic(self):
-        args = (30, 12, 3, 756, 3, 4, 500)
+        args = (30, 12, 3, 756, 3, 3.8, 500)
         one = app.keep_only_requested_volume(*args)
         two = app.keep_only_requested_volume(*args)
         self.assertEqual(one['radius'], two['radius'])
@@ -62,16 +62,16 @@ class GeometryTests(unittest.TestCase):
     def test_small_regions_use_local_thickness(self):
         total = app.calculate_asymmetric_area(15, 6)*3*.9478
         for px, factor in [(0, 1), (10, .82), (-10, .82)]:
-            result = app.keep_only_requested_volume(30, 12, 3, total, px, 7.8, 1)
+            result = app.keep_only_requested_volume(30, 12, 3, total, px, 0, 1)
             self.assertAlmostEqual(np.pi*result['radius']**2*3*factor, 1, places=6)
 
     def test_cut_crossings_and_symmetry(self):
         total = app.calculate_asymmetric_area(15, 6)*3*.9478
         cut = app.zone_boundaries(30)[2]
-        central = app.keep_only_requested_volume(30, 12, 3, total, 0, 7.8, 500)
+        central = app.keep_only_requested_volume(30, 12, 3, total, 0, 0, 500)
         self.assertGreater(central['radius'], cut)  # Crosses both boundaries.
-        right = app.keep_only_requested_volume(30, 12, 3, total, cut, 7.8, 10)
-        left = app.keep_only_requested_volume(30, 12, 3, total, -cut, 7.8, 10)
+        right = app.keep_only_requested_volume(30, 12, 3, total, cut, 0, 10)
+        left = app.keep_only_requested_volume(30, 12, 3, total, -cut, 0, 10)
         self.assertLess(right['radius'], cut)  # Crosses just one boundary.
         self.assertAlmostEqual(right['radius'], left['radius'], places=8)
 
@@ -99,6 +99,49 @@ class GeometryTests(unittest.TestCase):
             plot.assert_called_once()
             self.assertAlmostEqual(plot.call_args.args[4]['volume'], 500 / .9, places=5)
             self.assertIn(b'555.56 cc', response.data)
+            # The extraction and plot receive the same local-edge Cartesian Y.
+            expected_pyc = app.flap_bounds(3, 15, 6)[1] - 4
+            self.assertAlmostEqual(plot.call_args.args[3], expected_pyc)
+
+    def test_perforator_y_is_measured_from_local_upper_edge(self):
+        client = app.app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = 'test'
+        base = dict(width='30', length='12', thickness='3',
+                    Px='10', requested_weight='1')
+        low, high = app.flap_bounds(10, 15, 6)
+        local_height = high - low
+
+        with patch.object(app, 'visualize_extraction') as plot:
+            for measured_py, expected_y in [(0, high), (local_height, low),
+                                            (2, high - 2)]:
+                with self.subTest(py=measured_py):
+                    response = client.post('/index',
+                        data=base | dict(Py=str(measured_py)))
+                    self.assertEqual(response.status_code, 200)
+                    self.assertAlmostEqual(plot.call_args.args[3],
+                                           expected_y, places=10)
+
+            # Beyond the local lower incision must be rejected even if
+            # it would fall inside the flap using the former midline origin.
+            response = client.post('/index',
+                data=base | dict(Py=str(local_height + 0.1)))
+            self.assertEqual(response.status_code, 400)
+
+    def test_internal_geometry_uses_cartesian_y_without_reconversion(self):
+        total = app.calculate_asymmetric_area(15, 6) * 3 * .9478
+        pyc = 0.75
+        extraction = app.keep_only_requested_volume(
+            30, 12, 3, total, 10, pyc, 1)
+        self.assertGreater(extraction['radius'], 0)
+        found = []
+        def capture(fig, *args, **kwargs):
+            found.extend(line.get_ydata()[0] for line in fig.axes[0].lines
+                         if line.get_label() == 'Perforator')
+        with patch('matplotlib.figure.Figure.savefig', capture):
+            app.visualize_extraction(30, 12, 10, pyc, extraction, 1, total)
+        self.assertEqual(len(found), 1)
+        self.assertAlmostEqual(found[0], pyc)
 
     def test_legacy_volume_input_not_reinterpreted_as_grams(self):
         client = app.app.test_client()
@@ -110,14 +153,15 @@ class GeometryTests(unittest.TestCase):
 
     def test_plot_title_uses_weight_and_larger_region(self):
         total = app.calculate_asymmetric_area(17.5, 6)*2.6*.9478
-        old = app.keep_only_requested_volume(35, 12, 2.6, total, 3.5, 1, 500)
-        new = app.keep_only_requested_volume(35, 12, 2.6, total, 3.5, 1, 500/.9)
+        pyc = app.flap_bounds(3.5, 17.5, 6)[1] - 1
+        old = app.keep_only_requested_volume(35, 12, 2.6, total, 3.5, pyc, 500)
+        new = app.keep_only_requested_volume(35, 12, 2.6, total, 3.5, pyc, 500/.9)
         self.assertGreater(new['radius'], old['radius'])
         titles = []
         def capture(fig, *args, **kwargs):
             titles.append(fig.axes[0].get_title())
         with patch('matplotlib.figure.Figure.savefig', capture):
-            app.visualize_extraction(35, 12, 3.5, 1, new, 500/.9, total)
+            app.visualize_extraction(35, 12, 3.5, pyc, new, 500/.9, total)
         self.assertIn('500.0 g', titles[0])
         self.assertNotIn('cc', titles[0])
 

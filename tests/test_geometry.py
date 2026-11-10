@@ -13,7 +13,7 @@ class GeometryTests(unittest.TestCase):
 
     def test_requested_volumes_independently_integrated(self):
         total = app.calculate_asymmetric_area(15, 6) * 3 * 0.9478
-        for px, pyc in [(3, 3.8), (0, 7.8), (0, -4.2), (15, 0), (10, 0)]:
+        for px, pyc in [(3, 3.8), (0.01, 7.7), (0.01, -4.1), (15, 0), (10, 0)]:
             for target in [0.1, 10, 200, 500, total]:
                 with self.subTest(px=px, pyc=pyc, target=target):
                     result = app.keep_only_requested_volume(30, 12, 3, total, px, pyc, target)
@@ -61,14 +61,14 @@ class GeometryTests(unittest.TestCase):
 
     def test_small_regions_use_local_thickness(self):
         total = app.calculate_asymmetric_area(15, 6)*3*.9478
-        for px, factor in [(0, 1), (10, .82), (-10, .82)]:
+        for px, factor in [(0.01, 1), (10, .82), (-10, .82)]:
             result = app.keep_only_requested_volume(30, 12, 3, total, px, 0, 1)
             self.assertAlmostEqual(np.pi*result['radius']**2*3*factor, 1, places=6)
 
     def test_cut_crossings_and_symmetry(self):
         total = app.calculate_asymmetric_area(15, 6)*3*.9478
         cut = app.zone_boundaries(30)[2]
-        central = app.keep_only_requested_volume(30, 12, 3, total, 0, 0, 500)
+        central = app.keep_only_requested_volume(30, 12, 3, total, 0.01, 0, 500)
         self.assertGreater(central['radius'], cut)  # Crosses both boundaries.
         right = app.keep_only_requested_volume(30, 12, 3, total, cut, 0, 10)
         left = app.keep_only_requested_volume(30, 12, 3, total, -cut, 0, 10)
@@ -182,9 +182,73 @@ class GeometryTests(unittest.TestCase):
 
     def test_zone4_identification_relative_to_perforator(self):
         for px, expected in [(-12, (2, 3)), (-3, (3,)),
-                             (0, (0, 3)), (3, (0,)), (12, (0, 1))]:
+                             (3, (0,)), (12, (0, 1))]:
             with self.subTest(px=px):
                 self.assertEqual(app.perfusion_zone4_indices(px, 30), expected)
+
+    def test_midline_perforator_rejected(self):
+        total = app.calculate_asymmetric_area(15, 6) * 3 * .9478
+        for mode in (False, True):
+            with self.subTest(exclude_zone4=mode):
+                with self.assertRaisesRegex(ValueError, "Perforator X cannot equal 0"):
+                    app.keep_only_requested_volume(
+                        30, 12, 3, total, 0, 3.8, 100, exclude_zone4=mode)
+
+        with self.assertRaisesRegex(ValueError, "Perforator X cannot equal 0"):
+            app.perfusion_zone4_indices(0, 30)
+
+        client = app.app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = 'test'
+        data = dict(width='30', length='12', thickness='3',
+                    Px='0', Py='4', requested_weight='500')
+        with patch.object(app, 'visualize_extraction') as plot:
+            for selection in ({}, {'exclude_zone4': 'on'}):
+                response = client.post('/index', data=data | selection)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(b'Perforator X cannot equal 0', response.data)
+            plot.assert_not_called()
+
+    def test_zone4_medial_lateral_boundary_is_mirror_symmetric(self):
+        width, length, thickness = 30, 12, 3
+        cut = app.zone_boundaries(width)[2]
+        self.assertEqual(app.perfusion_zone4_indices(-cut, width), (3,))
+        self.assertEqual(app.perfusion_zone4_indices(cut, width), (0,))
+
+        # Immediately lateral to each boundary, both cases classify
+        # two contralateral zones as IV; immediately medial, only one.
+        eps = 1e-6
+        for offset, expected_left, expected_right in [
+            (-eps, (2, 3), (0, 1)),
+            (0, (3,), (0,)),
+            (eps, (3,), (0,)),
+        ]:
+            with self.subTest(offset=offset):
+                self.assertEqual(
+                    app.perfusion_zone4_indices(-cut + offset, width), expected_left)
+                self.assertEqual(
+                    app.perfusion_zone4_indices(cut - offset, width), expected_right)
+
+        total = app.calculate_asymmetric_area(width / 2, length / 2) * thickness * .9478
+        results = []
+        for px in (-cut, cut):
+            # Same 4 cm distance from the local upper incision.
+            pyc = app.flap_bounds(px, width / 2, length / 2)[1] - 4
+            extracted = app.keep_only_requested_volume(
+                width, length, thickness, total, px, pyc,
+                600 / .9, exclude_zone4=True)
+            results.append(extracted)
+            self.assertTrue(extracted['zone4_limited'])
+            self.assertAlmostEqual(
+                extracted['volume'] * app.TISSUE_DENSITY_G_PER_CC, 564.11,
+                delta=.02)
+            self.assertEqual(extracted['zone4_volume'], 0)
+
+        self.assertAlmostEqual(results[0]['volume'], results[1]['volume'], places=7)
+        self.assertAlmostEqual(results[0]['radius'], results[1]['radius'], places=7)
+        np.testing.assert_allclose(
+            results[0]['zone_volumes'], results[1]['zone_volumes'][::-1],
+            atol=1e-5, rtol=1e-6)
 
     def test_zone4_unticked_preserves_requested_volume_and_tracks_zone4(self):
         total = app.calculate_asymmetric_area(15, 6) * 3 * .9478

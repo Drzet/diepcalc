@@ -1,4 +1,6 @@
 import os
+import base64
+import re
 os.environ['MPLBACKEND'] = 'Agg'
 import unittest
 from unittest.mock import patch
@@ -102,6 +104,28 @@ class GeometryTests(unittest.TestCase):
             # The extraction and plot receive the same local-edge Cartesian Y.
             expected_pyc = app.flap_bounds(3, 15, 6)[1] - 4
             self.assertAlmostEqual(plot.call_args.args[3], expected_pyc)
+
+    def test_plot_is_embedded_in_memory_per_request(self):
+        client = app.app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = 'test'
+        base = dict(width='30', length='12', thickness='3',
+                    Px='3', Py='4', requested_weight='500')
+        encoded_images = []
+        for data in (base, base | dict(Px='4', requested_weight='450')):
+            response = client.post('/index', data=data)
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn(b'/static/extraction.png', response.data)
+            match = re.search(rb'<img src="data:image/png;base64,([^"]+)"',
+                              response.data)
+            self.assertIsNotNone(match)
+            png = base64.b64decode(match.group(1), validate=True)
+            self.assertTrue(png.startswith(b'\\x89PNG\\r\\n\\x1a\\n'))
+            self.assertGreater(len(png), 1000)
+            encoded_images.append(png)
+
+        # A later request must not replace or reuse an earlier response image.
+        self.assertNotEqual(encoded_images[0], encoded_images[1])
 
     def test_perforator_y_is_measured_from_local_upper_edge(self):
         client = app.app.test_client()

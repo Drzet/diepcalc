@@ -116,7 +116,8 @@ def index():
             requested_volume = requested_weight / TISSUE_DENSITY_G_PER_CC
             a, b = width / 2, length / 2
             low, high = flap_bounds(Px, a, b)
-            Pyc = b * 1.3 - Py
+            # Py is measured from the upper flap edge at the perforator X.
+            Pyc = high - Py
             if abs(Px) > a or not low - 1e-10 <= Pyc <= high + 1e-10:
                 raise ValueError("The perforator must lie within the flap boundary.")
             total_area = calculate_asymmetric_area(a, b)
@@ -126,7 +127,7 @@ def index():
             if requested_volume > total_volume:
                 raise ValueError(f"Desired weight exceeds the available {total_volume * TISSUE_DENSITY_G_PER_CC:.2f} g.")
             extraction = keep_only_requested_volume(
-                width, length, thickness, total_volume, Px, Py, requested_volume)
+                width, length, thickness, total_volume, Px, Pyc, requested_volume)
         except (ValueError, KeyError) as exc:
             return render_template('index.html', error=str(exc), user=session['user']), 400
 
@@ -139,7 +140,7 @@ def index():
             (LATERAL_THICKNESS_FACTOR * thickness, thickness, thickness, LATERAL_THICKNESS_FACTOR * thickness),
             calculate_zone_volumes(total_area, thickness)))
         extracted_width, extracted_length = extraction_dimensions(extraction)
-        visualize_extraction(width, length, Px, Py, extraction, requested_volume, total_volume)
+        visualize_extraction(width, length, Px, Pyc, extraction, requested_volume, total_volume)
 
         total_volume = int(round(total_volume))
         total_weight = int(round(total_weight))
@@ -166,20 +167,20 @@ def retained_bounds(x, a, b, Px, Pyc, radius, n=2, m=1.2, upper_scale=1.3, lower
     return np.maximum(low, Pyc - circle_height), np.minimum(high, Pyc + circle_height)
 
 
-def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, required_volume,
+def keep_only_requested_volume(width, length, thickness, total_volume, Px, Pyc, required_volume,
                                n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
     """Intersect the flap with a perforator-centred disk of solved volume.
 
     The disk preserves nearest-to-perforator selection, weighted by local
     thickness: full measured thickness medially, 82% laterally.
     Integration and radius solving do not depend on plotting resolution.
+    Pyc is the already-converted Cartesian Y coordinate of the perforator.
     """
-    if not np.isfinite([width, length, thickness, Px, Py, required_volume]).all():
+    if not np.isfinite([width, length, thickness, Px, Pyc, required_volume]).all():
         raise ValueError("Inputs must be finite.")
     if min(width, length, thickness, required_volume) <= 0:
         raise ValueError("Dimensions and required volume must be positive.")
     a, b = width / 2, length / 2
-    Pyc = b * upper_scale - Py
     low, high = flap_bounds(Px, a, b, n, m, upper_scale, lower_scale)
     if abs(Px) > a or not low - 1e-10 <= Pyc <= high + 1e-10:
         raise ValueError("The perforator must lie within the flap boundary.")
@@ -220,10 +221,9 @@ def keep_only_requested_volume(width, length, thickness, total_volume, Px, Py, r
     return dict(x=x, low=low, high=high, radius=radius, volume=actual_volume)
 
 
-def visualize_extraction(width, length, Px, Py, extraction, requested_volume, total_volume,
+def visualize_extraction(width, length, Px, Pyc, extraction, requested_volume, total_volume,
                          n=2, m=1.2, upper_scale=1.3, lower_scale=0.7):
     a, b = width / 2, length / 2
-    Pyc = b * upper_scale - Py
     x = np.linspace(-a, a, 2001)
     low, high = flap_bounds(x, a, b, n, m, upper_scale, lower_scale)
     fig, ax = plt.subplots(figsize=(10, 10))

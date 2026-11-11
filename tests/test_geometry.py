@@ -101,8 +101,8 @@ class GeometryTests(unittest.TestCase):
             plot.assert_called_once()
             self.assertAlmostEqual(plot.call_args.args[4]['volume'], 500 / .9, places=5)
             self.assertIn(b'555.56 cc', response.data)
-            # The extraction and plot receive the same local-edge Cartesian Y.
-            expected_pyc = app.flap_bounds(3, 15, 6)[1] - 4
+            # The extraction and plot receive the CT midline-referenced Y.
+            expected_pyc = app.flap_bounds(0, 15, 6)[1] - 4
             self.assertAlmostEqual(plot.call_args.args[3], expected_pyc)
 
     def test_plot_is_embedded_in_memory_per_request(self):
@@ -127,30 +127,81 @@ class GeometryTests(unittest.TestCase):
         # A later request must not replace or reuse an earlier response image.
         self.assertNotEqual(encoded_images[0], encoded_images[1])
 
-    def test_perforator_y_is_measured_from_local_upper_edge(self):
+    def test_perforator_y_is_measured_from_ct_superior_midline(self):
         client = app.app.test_client()
         with client.session_transaction() as session:
             session['user'] = 'test'
         base = dict(width='30', length='12', thickness='3',
-                    Px='10', requested_weight='1')
-        low, high = app.flap_bounds(10, 15, 6)
-        local_height = high - low
+                    requested_weight='1')
+        ct_top = app.flap_bounds(0, 15, 6)[1]
 
         with patch.object(app, 'visualize_extraction') as plot:
-            for measured_py, expected_y in [(0, high), (local_height, low),
-                                            (2, high - 2)]:
-                with self.subTest(py=measured_py):
-                    response = client.post('/index',
-                        data=base | dict(Py=str(measured_py)))
-                    self.assertEqual(response.status_code, 200)
-                    self.assertAlmostEqual(plot.call_args.args[3],
-                                           expected_y, places=10)
+            for px in (-10, 10):
+                local_low, local_high = app.flap_bounds(px, 15, 6)
+                # The CT origin stays at the superior MIDLINE, so the
+                # local upper incision is below 0 cm in CT measurements.
+                for py in (ct_top - local_high, ct_top - local_low, 4):
+                    with self.subTest(px=px, py=py):
+                        response = client.post('/index',
+                            data=base | dict(Px=str(px), Py=str(py)))
+                        self.assertEqual(response.status_code, 200)
+                        self.assertAlmostEqual(plot.call_args.args[3],
+                                               ct_top - py, places=10)
 
-            # Beyond the local lower incision must be rejected even if
-            # it would fall inside the flap using the former midline origin.
-            response = client.post('/index',
-                data=base | dict(Py=str(local_height + 0.1)))
-            self.assertEqual(response.status_code, 400)
+                # A perforator above its local incision is invalid, even
+                # if the supplied CT slice remains below the midline apex.
+                response = client.post('/index', data=base | dict(
+                    Px=str(px), Py=str(ct_top - local_high - 0.1)))
+                self.assertEqual(response.status_code, 400)
+
+                # Likewise a CT slice below the local inferior incision.
+                response = client.post('/index', data=base | dict(
+                    Px=str(px), Py=str(ct_top - local_low + 0.1)))
+                self.assertEqual(response.status_code, 400)
+
+            # The same CT Y produces the same Cartesian Y for different X.
+            self.assertEqual(ct_top, app.flap_bounds(0, 15, 6)[1])
+
+    def test_ct_visualization_draws_midline_origin_and_xy_guides(self):
+        width, length, thickness, px, measured_y = 30, 12, 3, -10, 4
+        a, b = width / 2, length / 2
+        ct_top = app.flap_bounds(0, a, b)[1]
+        pyc = ct_top - measured_y
+        total = app.calculate_asymmetric_area(a, b) * thickness * .9478
+        extraction = app.keep_only_requested_volume(
+            width, length, thickness, total, px, pyc, 1)
+
+        def capture(fig, *args, **kwargs):
+            ax = fig.axes[0]
+            origin = next(line for line in ax.lines
+                          if line.get_label() == 'CT origin (0, 0)')
+            x_guide = next(line for line in ax.lines
+                           if line.get_label() == 'CT X guide')
+            y_guide = next(line for line in ax.lines
+                           if line.get_label() == 'CT Y guide')
+            perforator = next(line for line in ax.lines
+                              if line.get_label() == 'Perforator')
+            np.testing.assert_allclose(
+                [origin.get_xdata()[0], origin.get_ydata()[0]],
+                [0, ct_top])
+            np.testing.assert_allclose(
+                x_guide.get_xdata(), [0, px])
+            np.testing.assert_allclose(
+                x_guide.get_ydata(), [ct_top, ct_top])
+            np.testing.assert_allclose(
+                y_guide.get_xdata(), [px, px])
+            np.testing.assert_allclose(
+                y_guide.get_ydata(), [ct_top, pyc])
+            np.testing.assert_allclose(
+                [perforator.get_xdata()[0], perforator.get_ydata()[0]],
+                [px, pyc])
+            labels = [text.get_text() for text in ax.texts]
+            self.assertIn('X = -10.0 cm', labels)
+            self.assertIn('Y = 4.0 cm', labels)
+
+        with patch('matplotlib.figure.Figure.savefig', capture):
+            app.visualize_extraction(
+                width, length, px, pyc, extraction, 1, total)
 
     def test_internal_geometry_uses_cartesian_y_without_reconversion(self):
         total = app.calculate_asymmetric_area(15, 6) * 3 * .9478

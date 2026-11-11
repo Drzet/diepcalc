@@ -94,18 +94,18 @@
 </script>
 
         {% if requested_weight %}
-            <div class="mt-2 text-center">
+            <div class="mt-1 text-center">
                 {% if zone4_limited %}
                     <p class="alert alert-warning" role="alert">zone 4 needed to satisfy request</p>
                 {% endif %}
-                <p id="flap-summary" class="d-flex flex-wrap justify-content-center gap-3 fw-semibold" style="font-size: clamp(1.25rem, 3vw, 1.75rem);">
+                <p id="flap-summary" class="d-flex flex-wrap justify-content-center gap-3 fw-semibold mb-1" style="font-size: clamp(1.25rem, 3vw, 1.75rem);">
                     <span>Requested weight: {{ '%.1f'|format(requested_weight) }} g</span>
-                    <span>Estimated retained weight: {{ retained_weight }} g</span>
-                    <span>Estimated retained volume: {{ retained_volume }} cc</span>
+                    <span>Estimated weight: {{ retained_weight }} g</span>
+                    <span>Estimated volume: {{ retained_volume }} cc</span>
                     <span>Estimated dimensions: {{ '%.1f'|format(extracted_width) }} × {{ '%.1f'|format(extracted_length) }} cm</span>
                 </p>
-                <p>Zone 4 retained: {{ zone4_weight }} g ({{ zone4_volume }} cc)</p>
-                <img src="{{ plot_data_uri }}" class="img-fluid mt-3" style="max-width: 100%;" alt="Extracted Visualization">
+                <p class="fw-medium mb-1" style="font-size: 1.1rem;">Zone 4 contribution: {{ zone4_weight }} g ({{ zone4_volume }} cc)</p>
+                <img src="{{ plot_data_uri }}" class="img-fluid d-block mx-auto" style="max-width: 100%; height: auto;" alt="Extracted Visualization">
                 <div class="mt-4">
                 <p><strong>Total area:</strong> {{ total_area }} cm sq</p>
                 <p><strong>Estimated total weight:</strong> {{ total_weight }} g</p>

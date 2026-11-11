@@ -140,8 +140,10 @@ def index():
             requested_volume = requested_weight / TISSUE_DENSITY_G_PER_CC
             a, b = width / 2, length / 2
             low, high = flap_bounds(Px, a, b)
-            # Py is measured from the upper flap edge at the perforator X.
-            Pyc = high - Py
+            # CT Y is measured from the highest superior incision at x=0.
+            # The actual perforator must still lie inside its local flap bounds.
+            ct_top_y = flap_bounds(0, a, b)[1]
+            Pyc = ct_top_y - Py
             if abs(Px) > a or not low - 1e-10 <= Pyc <= high + 1e-10:
                 raise ValueError("The perforator must lie within the flap boundary.")
             total_area = calculate_asymmetric_area(a, b)
@@ -314,6 +316,35 @@ def visualize_extraction(width, length, Px, Pyc, extraction, requested_volume, t
             ax.plot([cut, cut], [zone_low, zone_high], color='gray', linestyle='--',
                     label="Geometric zone boundaries" if i == 0 else None)
         ax.plot(Px, Pyc, 'ko', markersize=8, label="Perforator")
+        # CT coordinate origin: highest point of the superior incision.
+        # CAD-style orthogonal guides and dimension arrows use display
+        # annotations only; they do not affect the extraction coordinates.
+        ct_top_y = flap_bounds(0, a, b, n, m, upper_scale, lower_scale)[1]
+        ax.plot(0, ct_top_y, marker='+', markersize=11, color='black',
+                linestyle='None', label="CT origin (0, 0)")
+        guide_style = dict(color='dimgray', linewidth=1, linestyle=':')
+        ax.plot([0, Px], [ct_top_y, ct_top_y],
+                label="CT X guide", **guide_style)
+        ax.plot([Px, Px], [ct_top_y, Pyc],
+                label="CT Y guide", **guide_style)
+        direction = 1 if Px > 0 else -1
+        dimension_offset = 0.8
+        x_dimension_y = ct_top_y + dimension_offset
+        y_dimension_x = Px + direction * dimension_offset
+        ax.annotate('', xy=(Px, x_dimension_y), xytext=(0, x_dimension_y),
+                    arrowprops=dict(arrowstyle='<->', color='dimgray',
+                                    linewidth=1))
+        ax.annotate('', xy=(y_dimension_x, Pyc),
+                    xytext=(y_dimension_x, ct_top_y),
+                    arrowprops=dict(arrowstyle='<->', color='dimgray',
+                                    linewidth=1))
+        ax.text(Px / 2, x_dimension_y + 0.2, f'X = {Px:+.1f} cm',
+                fontsize=9, ha='center', va='bottom',
+                bbox=dict(facecolor='white', edgecolor='none', alpha=0.75))
+        ax.text(y_dimension_x + direction * 0.15, (ct_top_y + Pyc) / 2,
+                f'Y = {ct_top_y - Pyc:.1f} cm',
+                fontsize=9, rotation=90, ha='center', va='center',
+                bbox=dict(facecolor='white', edgecolor='none', alpha=0.75))
         valid = extraction['high'] >= extraction['low']
         zone4 = zone4_mask(extraction['x'], extraction['zone4_indices'],
                            zone_boundaries(width, n, m))

@@ -409,7 +409,7 @@ class GeometryTests(unittest.TestCase):
             self.assertEqual(excluded.status_code, 200)
             self.assertIn(b'zone 4 needed to satisfy request', excluded.data)
             self.assertIn(b'Estimated weight:', excluded.data)
-            self.assertIn(b'Zone 4 retained: 0.0 g', excluded.data)
+            self.assertIn(b'Zone 4 contribution: 0.0 g', excluded.data)
             self.assertIn(b'checked', excluded.data)
             # Request above full capacity remains an error unless Zone IV
             # is excluded, in which case the attainable maximum is shown.
@@ -426,15 +426,28 @@ class GeometryTests(unittest.TestCase):
             thickness=2.6, Px=3.5, Py=1, requested_volume=500))
         self.assertEqual(response.status_code, 400)
 
+    def test_weight_to_volume_conversion_affects_extraction_radius(self):
+        total = app.calculate_asymmetric_area(17.5, 6) * 2.6 * .9478
+        pyc = app.flap_bounds(3.5, 17.5, 6)[1] - 1
+        smaller = app.keep_only_requested_volume(
+            35, 12, 2.6, total, 3.5, pyc, 500)
+        larger = app.keep_only_requested_volume(
+            35, 12, 2.6, total, 3.5, pyc, 500 / .9)
+        self.assertGreater(larger['radius'], smaller['radius'])
+
     def test_plot_has_no_title_and_legend_is_upper_right(self):
         total = app.calculate_asymmetric_area(15, 6) * 3 * .9478
         px = -3
         pyc = app.flap_bounds(0, 15, 6)[1] - 4
 
-        for exclude in (False, True):
-            with self.subTest(exclude=exclude):
+        for exclude, target, has_zone4 in (
+            (False, 600/.9, True),
+            (True, 600/.9, True),
+            (False, 1, False),
+        ):
+            with self.subTest(exclude=exclude, target=target):
                 result = app.keep_only_requested_volume(
-                    30, 12, 3, total, px, pyc, 600/.9,
+                    30, 12, 3, total, px, pyc, target,
                     exclude_zone4=exclude)
 
                 def capture(fig, *args, **kwargs):
@@ -443,10 +456,13 @@ class GeometryTests(unittest.TestCase):
                     self.assertEqual(tuple(fig.get_size_inches()), (10, 6.5))
                     legend = ax.get_legend()
                     self.assertEqual(legend._loc, 1)  # upper right
+                    expected = ['Geometric boundaries', 'Perforator',
+                                'Estimated flap']
+                    if has_zone4:
+                        expected.append('Zone 4')
                     self.assertEqual(
                         [text.get_text() for text in legend.get_texts()],
-                        ['Geometric boundaries', 'Perforator',
-                         'Estimated flap', 'Zone 4'])
+                        expected)
                     # The outline and CT guides remain plotted.
                     labels = {line.get_label() for line in ax.lines}
                     self.assertIn('Abdominoplasty Boundary', labels)
@@ -455,7 +471,7 @@ class GeometryTests(unittest.TestCase):
 
                 with patch('matplotlib.figure.Figure.savefig', capture):
                     app.visualize_extraction(
-                        30, 12, px, pyc, result, 600/.9, total)
+                        30, 12, px, pyc, result, target, total)
 
 
 if __name__ == '__main__':

@@ -101,6 +101,11 @@ class GeometryTests(unittest.TestCase):
             plot.assert_called_once()
             self.assertAlmostEqual(plot.call_args.args[4]['volume'], 500 / .9, places=5)
             self.assertIn(b'555.56 cc', response.data)
+            self.assertIn(b'Estimated weight:', response.data)
+            self.assertIn(b'Estimated volume:', response.data)
+            self.assertIn(b'Zone 4 contribution:', response.data)
+            self.assertNotIn(b'Estimated retained weight:', response.data)
+            self.assertNotIn(b'Estimated retained volume:', response.data)
             # The extraction and plot receive the CT midline-referenced Y.
             expected_pyc = app.flap_bounds(0, 15, 6)[1] - 4
             self.assertAlmostEqual(plot.call_args.args[3], expected_pyc)
@@ -403,8 +408,8 @@ class GeometryTests(unittest.TestCase):
                                    data=data | dict(exclude_zone4='on'))
             self.assertEqual(excluded.status_code, 200)
             self.assertIn(b'zone 4 needed to satisfy request', excluded.data)
-            self.assertIn(b'Estimated retained weight:', excluded.data)
-            self.assertIn(b'Zone 4 retained: 0.0 g', excluded.data)
+            self.assertIn(b'Estimated weight:', excluded.data)
+            self.assertIn(b'Zone 4 contribution: 0.0 g', excluded.data)
             self.assertIn(b'checked', excluded.data)
             # Request above full capacity remains an error unless Zone IV
             # is excluded, in which case the attainable maximum is shown.
@@ -421,19 +426,53 @@ class GeometryTests(unittest.TestCase):
             thickness=2.6, Px=3.5, Py=1, requested_volume=500))
         self.assertEqual(response.status_code, 400)
 
-    def test_plot_title_uses_weight_and_larger_region(self):
-        total = app.calculate_asymmetric_area(17.5, 6)*2.6*.9478
+    def test_weight_to_volume_conversion_affects_extraction_radius(self):
+        total = app.calculate_asymmetric_area(17.5, 6) * 2.6 * .9478
         pyc = app.flap_bounds(3.5, 17.5, 6)[1] - 1
-        old = app.keep_only_requested_volume(35, 12, 2.6, total, 3.5, pyc, 500)
-        new = app.keep_only_requested_volume(35, 12, 2.6, total, 3.5, pyc, 500/.9)
-        self.assertGreater(new['radius'], old['radius'])
-        titles = []
-        def capture(fig, *args, **kwargs):
-            titles.append(fig.axes[0].get_title())
-        with patch('matplotlib.figure.Figure.savefig', capture):
-            app.visualize_extraction(35, 12, 3.5, pyc, new, 500/.9, total)
-        self.assertIn('500.0 g', titles[0])
-        self.assertNotIn('cc', titles[0])
+        smaller = app.keep_only_requested_volume(
+            35, 12, 2.6, total, 3.5, pyc, 500)
+        larger = app.keep_only_requested_volume(
+            35, 12, 2.6, total, 3.5, pyc, 500 / .9)
+        self.assertGreater(larger['radius'], smaller['radius'])
+
+    def test_plot_has_no_title_and_legend_is_upper_right(self):
+        total = app.calculate_asymmetric_area(15, 6) * 3 * .9478
+        px = -3
+        pyc = app.flap_bounds(0, 15, 6)[1] - 4
+
+        for exclude, target, has_zone4 in (
+            (False, 600/.9, True),
+            (True, 600/.9, True),
+            (False, 1, False),
+        ):
+            with self.subTest(exclude=exclude, target=target):
+                result = app.keep_only_requested_volume(
+                    30, 12, 3, total, px, pyc, target,
+                    exclude_zone4=exclude)
+
+                def capture(fig, *args, **kwargs):
+                    ax = fig.axes[0]
+                    self.assertEqual(ax.get_title(), '')
+                    self.assertEqual(tuple(fig.get_size_inches()), (10, 6.5))
+                    legend = ax.get_legend()
+                    self.assertEqual(legend._loc, 1)  # upper right
+                    expected = ['Geometric boundaries', 'Perforator',
+                                'Estimated flap']
+                    if has_zone4:
+                        expected.append('Zone 4')
+                    self.assertEqual(
+                        [text.get_text() for text in legend.get_texts()],
+                        expected)
+                    # The outline and CT guides remain plotted.
+                    labels = {line.get_label() for line in ax.lines}
+                    self.assertIn('Abdominoplasty Boundary', labels)
+                    self.assertIn('CT X guide', labels)
+                    self.assertIn('CT Y guide', labels)
+
+                with patch('matplotlib.figure.Figure.savefig', capture):
+                    app.visualize_extraction(
+                        30, 12, px, pyc, result, target, total)
+
 
 if __name__ == '__main__':
     unittest.main()

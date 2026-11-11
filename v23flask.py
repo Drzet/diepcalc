@@ -299,7 +299,7 @@ def visualize_extraction(width, length, Px, Pyc, extraction, requested_volume, t
     a, b = width / 2, length / 2
     x = np.linspace(-a, a, 2001)
     low, high = flap_bounds(x, a, b, n, m, upper_scale, lower_scale)
-    fig, ax = plt.subplots(figsize=(10, 10))
+    fig, ax = plt.subplots(figsize=(10, 6.5))
     try:
         ax.set_xlim(-a - 5, a + 5)
         ax.set_ylim(-b * lower_scale - 5, b * upper_scale + 5)
@@ -360,9 +360,23 @@ def visualize_extraction(width, length, Px, Pyc, extraction, requested_volume, t
             ax.fill_between(extraction['x'], extraction['low'], extraction['high'],
                             where=valid & zone4, color='purple', alpha=0.6,
                             label="Zone 4 Portion")
-        extracted_width, extracted_length = extraction_dimensions(extraction)
-        ax.set_title(f"DIEP Flap {extraction['volume'] * TISSUE_DENSITY_G_PER_CC:.1f} g | Approx. dimensions: {extracted_width:.1f}cm x {extracted_length:.1f}cm")
-        ax.legend()
+        # Keep CAD guides and the incision outline visible but off the legend.
+        # Both included (purple) and excluded (grey) portions use "Zone 4".
+        legend_names = {
+            "Geometric zone boundaries": "Geometric boundaries",
+            "Perforator": "Perforator",
+            "Extracted Region": "Estimated flap",
+            "Zone 4 Portion": "Zone 4",
+            "Excluded Zone 4": "Zone 4",
+        }
+        handles, labels = ax.get_legend_handles_labels()
+        displayed = [(handle, legend_names[label])
+                     for handle, label in zip(handles, labels)
+                     if label in legend_names]
+        ax.legend([handle for handle, _ in displayed],
+                  [label for _, label in displayed],
+                  loc='upper right', fontsize=9)
+
         ax.grid()
         # Each request owns its image: no shared on-disk PNG or browser cache key.
         image = BytesIO()
